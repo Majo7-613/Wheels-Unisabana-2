@@ -9,10 +9,11 @@ const apiBaseUrl =
   metaEnv?.VITE_API_URL ||
   process.env?.VITE_API_URL ||
   resolvedDefaultBaseUrl;
+const apiTimeout = Number(metaEnv?.VITE_API_TIMEOUT || process.env?.VITE_API_TIMEOUT) || 20000;
 
 const api = axios.create({
   baseURL: apiBaseUrl,
-  timeout: 10000
+  timeout: apiTimeout
 });
 
 // Añadir token de localStorage si existe
