@@ -9,6 +9,7 @@ import TripForm from "../features/Trips/TripForm.jsx";
 import VehiclesPage from "../features/Vehicles/VehiclesPage.jsx";
 import ReservationsPage from "../features/Reservations/ReservationsPage.jsx";
 import ProfilePage from "../features/Profile/ProfilePage.jsx";
+import Logout from "../features/Auth/Logout.jsx";
 
 export default [
   <Route
@@ -62,6 +63,15 @@ export default [
     element={
       <ProtectedRoute>
         <ProfilePage />
+      </ProtectedRoute>
+    }
+  />,
+  <Route
+    key="logout"
+    path="/logout"
+    element={
+      <ProtectedRoute>
+        <Logout />
       </ProtectedRoute>
     }
   />,

@@ -31,14 +31,13 @@ function InfoRow({ label, value }) {
 }
 
 export default function ProfilePage() {
-  const { user, refreshProfile, updateProfile, logout, loadingProfile } = useAuth();
+  const { user, refreshProfile, updateProfile, loadingProfile } = useAuth();
   const navigate = useNavigate();
   const [updatingRole, setUpdatingRole] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [resetStep, setResetStep] = useState("request");
   const [resetEmail, setResetEmail] = useState("");
@@ -674,45 +673,12 @@ export default function ProfilePage() {
           <button
             type="button"
             className="flex-1 min-w-[180px] rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 hover:bg-red-100"
-            onClick={() => setShowLogoutModal(true)}
+            onClick={() => navigate("/logout")}
           >
             Cerrar sesión
           </button>
         </section>
       </div>
-
-      {showLogoutModal && (
-        <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/50 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl">
-            <div className="bg-slate-900 px-6 py-5 text-white">
-              <p className="text-sm uppercase tracking-[0.3em] text-white/70">Configuración</p>
-              <h2 className="mt-2 text-xl font-semibold">¿Cerrar sesión?</h2>
-            </div>
-            <div className="px-6 py-6">
-              <p className="text-sm text-slate-600">¿Estás seguro de que deseas salir de tu cuenta?</p>
-              <div className="mt-6 flex flex-col gap-3">
-                <button
-                  type="button"
-                  className="w-full rounded-full bg-red-500 py-3 text-sm font-semibold uppercase tracking-wider text-white hover:bg-red-600"
-                  onClick={() => {
-                    setShowLogoutModal(false);
-                    logout();
-                  }}
-                >
-                  Sí, cerrar sesión
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded-full border border-slate-300 py-3 text-sm font-semibold uppercase tracking-wider text-slate-600 hover:bg-slate-50"
-                  onClick={() => setShowLogoutModal(false)}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showPasswordModal && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/60 px-4 backdrop-blur-sm">

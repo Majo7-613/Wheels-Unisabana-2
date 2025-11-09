@@ -8,6 +8,7 @@ import User from "../models/User.js";
 import Vehicle from "../models/Vehicle.js";
 import PasswordReset from "../models/PasswordReset.js";
 import { requireAuth } from "../middlewares/auth.js";
+import { revokeToken } from "../utils/tokenBlacklist.js";
 import { sendWelcomeEmail } from "../services/emailService.js";
 
 const router = Router();
@@ -368,10 +369,9 @@ router.put("/role", requireAuth, async (req, res) => {
   }
 });
 
-// POST /auth/logout: placeholder to support client-side logout flows.
-// If using refresh tokens, this endpoint should revoke them server-side.
-router.post("/logout", (_req, res) => {
-  // For now we rely on the client to discard the JWT. Return 200 for UX.
+// POST /auth/logout: revoke current JWT so it cannot be reused.
+router.post("/logout", requireAuth, (req, res) => {
+  revokeToken(req.token, req.user?.exp);
   return res.json({ ok: true });
 });
 

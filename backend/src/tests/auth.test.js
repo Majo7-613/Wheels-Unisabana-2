@@ -4,6 +4,7 @@ import User from "../models/User.js";
 import Vehicle from "../models/Vehicle.js";
 import { jest } from "@jest/globals";
 import { MongoMemoryServer } from "mongodb-memory-server";
+import { clearRevokedTokens } from "../utils/tokenBlacklist.js";
 
 let app;
 let mongoServer;
@@ -30,6 +31,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await User.deleteMany({});
   await Vehicle.deleteMany({});
+  clearRevokedTokens();
 });
 
 describe("Auth routes", () => {
@@ -111,7 +113,13 @@ describe("Auth routes", () => {
     expect(unknownUser.body?.error).toBe("Credenciales inválidas");
   });
 
-  it("should confirm logout response is ok", async () => {
+  it("requires authentication to logout", async () => {
+    const res = await request(app).post("/auth/logout").send();
+    expect(res.status).toBe(401);
+    expect(res.body?.error).toBe("No token");
+  });
+
+  it("should revoke token on logout and block further access", async () => {
     const payload = {
       email: "logout@unisabana.edu.co",
       firstName: "Bye",
@@ -124,14 +132,33 @@ describe("Auth routes", () => {
     await request(app).post("/auth/register").send(payload).expect(201);
     const loginRes = await request(app).post("/auth/login").send({ email: payload.email, password: payload.password });
     expect(loginRes.status).toBe(200);
+    const token = loginRes.body.token;
+
+    const profileRes = await request(app)
+      .get("/auth/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send();
+    expect(profileRes.status).toBe(200);
 
     const logoutRes = await request(app)
       .post("/auth/logout")
-      .set("Authorization", `Bearer ${loginRes.body.token}`)
+      .set("Authorization", `Bearer ${token}`)
       .send();
 
     expect(logoutRes.status).toBe(200);
     expect(logoutRes.body).toEqual({ ok: true });
+
+    const afterLogout = await request(app)
+      .get("/auth/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send();
+    expect(afterLogout.status).toBe(401);
+
+    const secondLogout = await request(app)
+      .post("/auth/logout")
+      .set("Authorization", `Bearer ${token}`)
+      .send();
+    expect(secondLogout.status).toBe(401);
   });
   it("should track active vehicle when creating and switching", async () => {
     const payload = {

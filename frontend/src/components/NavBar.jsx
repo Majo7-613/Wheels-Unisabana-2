@@ -14,7 +14,7 @@ const baseNav = [
 ];
 
 export default function NavBar() {
-  const { isAuthenticated, logout, user, loadingProfile } = useAuth();
+  const { isAuthenticated, user, loadingProfile } = useAuth();
   const { palette } = useTheme();
   const roles = user?.roles || [];
   const allowedNav = baseNav.filter((item) => !item.requiresRole || roles.includes(item.requiresRole));
@@ -69,12 +69,12 @@ export default function NavBar() {
                   {user?.activeRole === "driver" ? "Conductor" : "Pasajero"}
                 </span>
               </div>
-              <button
-                onClick={logout}
+              <Link
+                to="/logout"
                 className="rounded-full bg-white/15 px-3 py-1 text-white hover:bg-white/25"
               >
                 Cerrar sesión
-              </button>
+              </Link>
             </>
           )}
         </div>

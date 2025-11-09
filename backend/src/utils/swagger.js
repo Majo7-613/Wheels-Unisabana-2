@@ -184,6 +184,16 @@ const swaggerSpec = {
         }
       }
     },
+    "/auth/logout": {
+      post: {
+        summary: "Cerrar sesión",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          "200": { description: "Sesión invalidada" },
+          "401": { description: "No autorizado" }
+        }
+      }
+    },
     "/maps/distance": {
       get: {
         summary: "Distance Matrix (legacy)",
