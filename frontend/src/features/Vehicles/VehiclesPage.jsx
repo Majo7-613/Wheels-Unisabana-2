@@ -181,9 +181,18 @@ export default function VehiclesPage() {
     }
   }
 
-  const validVehicles = vehicles.filter(
-    (vehicle) => isDocumentValid(vehicle.soatExpiration) && isDocumentValid(vehicle.licenseExpiration)
-  );
+  const validVehicles = vehicles.filter((vehicle) => {
+    if (vehicle?.meta?.documentsOk !== undefined) return vehicle.meta.documentsOk;
+    return isDocumentValid(vehicle.soatExpiration) && isDocumentValid(vehicle.licenseExpiration);
+  });
+
+  const severityStyles = {
+    success: "border-emerald-300 bg-emerald-50 text-emerald-700",
+    info: "border-sky-300 bg-sky-50 text-sky-700",
+    warning: "border-amber-300 bg-amber-50 text-amber-700",
+    danger: "border-red-300 bg-red-50 text-red-700",
+    default: "border-slate-200 bg-slate-100 text-slate-600"
+  };
 
   if (!isDriver && vehicles.length === 0) {
     return (
@@ -198,24 +207,16 @@ export default function VehiclesPage() {
 
   return (
     <section className="py-6">
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Mis vehículos</h1>
-          <p className="text-sm text-slate-600">Gestiona todos los vehículos que usarás para ofrecer viajes.</p>
-          {vehicles.length > 0 && (
-            <p className="mt-2 text-xs text-slate-500">
-              Documentos vigentes: {validVehicles.length}/{vehicles.length}. Solo los vehículos con documentos vigentes podrán usarse al crear viajes.
-            </p>
-          )}
-        </div>
-        <button
-          type="button"
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-blue-300"
-          onClick={openCreate}
-          disabled={!isDriver || submitting}
-        >
-          Registrar vehículo
-        </button>
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold text-slate-900">Mis vehículos</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Administra la flota con la que ofreces viajes y elige cuál quedará activo para nuevas publicaciones.
+        </p>
+        {vehicles.length > 0 && (
+          <p className="mt-2 text-xs text-slate-500">
+            Documentos vigentes: {validVehicles.length}/{vehicles.length}. Solo los vehículos verificados y con documentos al día podrán activarse.
+          </p>
+        )}
       </header>
 
       {error && (
@@ -229,76 +230,129 @@ export default function VehiclesPage() {
         <p className="text-sm text-slate-500">Cargando...</p>
       ) : (
         <>
-          {vehicles.length === 0 && mode === "list" && (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 p-6 text-sm text-slate-600">
-              Aún no has registrado vehículos. Registra al menos uno con documentos vigentes para ofrecer viajes.
+          {vehicles.length === 0 && mode === "list" ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white/70 p-8 text-center text-sm text-slate-600">
+              <p>Registra tu primer vehículo para cambiar al modo conductor y publicar viajes.</p>
+              <button
+                type="button"
+                className="mt-4 inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                onClick={openCreate}
+                disabled={submitting}
+              >
+                Agregar vehículo
+              </button>
             </div>
-          )}
-
-          {vehicles.length > 0 && (
+          ) : (
             <div className="grid gap-6 lg:grid-cols-2">
               {vehicles.map((vehicle) => {
                 const vehicleId = String(vehicle._id);
                 const isActive = vehicleId === activeVehicleId;
-                const soatValid = isDocumentValid(vehicle.soatExpiration);
-                const licenseValid = isDocumentValid(vehicle.licenseExpiration);
-                const docsOk = soatValid && licenseValid;
+                const meta = vehicle.meta || {};
+                const statusClass = `border ${severityStyles[meta.statusSeverity] || severityStyles.default}`;
+                const statusLabel = meta.statusLabel || "Verificación en curso";
+                const canActivate = Boolean(meta.canActivate);
+                const warnings = Array.isArray(meta.warnings) ? meta.warnings : [];
+                const soatExpires = meta.documents?.soat?.expiresOn || vehicle.soatExpiration;
+                const licenseExpires = meta.documents?.license?.expiresOn || vehicle.licenseExpiration;
+                const modelValue = vehicle.model || "";
+                const modelAsYear = /^\d{4}$/.test(modelValue.trim());
+                const vehicleTitle = (modelAsYear ? `${vehicle.brand}` : `${vehicle.brand} ${modelValue}`).trim();
+                const displayTitle = vehicleTitle || vehicle.brand || "Vehículo sin nombre";
+                const capacityLabel = `${vehicle.capacity} pasajero${vehicle.capacity === 1 ? "" : "s"}`;
+                const activationDisabled = isActive || activatingId === vehicleId || submitting || !canActivate;
+                const activateLabel = isActive
+                  ? "Vehículo activo"
+                  : !canActivate
+                  ? "Pendiente de verificación"
+                  : activatingId === vehicleId
+                  ? "Activando..."
+                  : "Activar";
+
                 return (
-                  <article key={vehicle._id} className="rounded-xl border border-white/60 bg-white/80 p-5 shadow-sm">
-                    <div className="flex items-start justify-between gap-4">
+                  <article key={vehicle._id} className={`relative flex h-full flex-col gap-4 rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm ${isActive ? "ring-2 ring-emerald-300" : ""}`}>
+                    <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h2 className="text-lg font-semibold text-slate-900">
-                          {vehicle.brand} {vehicle.model}
-                          {isActive && (
-                            <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
-                              Activo
-                            </span>
-                          )}
-                        </h2>
-                        <p className="text-sm text-slate-600">Placa: {vehicle.plate}</p>
-                        <p className="text-sm text-slate-600">Capacidad: {vehicle.capacity} puestos</p>
-                        <p className={`mt-2 text-xs font-medium ${docsOk ? "text-emerald-600" : "text-red-600"}`}>
-                          Documentos {docsOk ? "vigentes" : "con vencimiento"}
-                        </p>
-                        <ul className="mt-1 space-y-1 text-xs text-slate-500">
-                          <li>SOAT vence: {vehicle.soatExpiration ? formatDateInput(vehicle.soatExpiration) : "Sin fecha"}</li>
-                          <li>Licencia vence: {vehicle.licenseExpiration ? formatDateInput(vehicle.licenseExpiration) : "Sin fecha"}</li>
-                          <li>Número de licencia: {vehicle.licenseNumber || "No registrado"}</li>
-                        </ul>
+                        <h2 className="text-lg font-semibold text-slate-900">{displayTitle}</h2>
+                        <p className="text-sm text-slate-600">Placa {vehicle.plate}</p>
                       </div>
-                      <div className="flex flex-col gap-2">
-                        <button
-                          type="button"
-                          className={`rounded-md px-3 py-1 text-xs font-medium ${
-                            isActive
-                              ? "border border-blue-200 bg-blue-50 text-blue-700"
-                              : "border border-blue-200 text-blue-700 hover:bg-blue-50"
+                      <div className="flex flex-col items-end gap-2 text-xs font-medium">
+                        <span
+                          className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${
+                            isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"
                           }`}
-                          onClick={() => handleActivate(vehicleId)}
-                          disabled={isActive || activatingId === vehicleId || submitting}
                         >
-                          {activatingId === vehicleId ? "Activando..." : isActive ? "Vehículo activo" : "Activar"}
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-100"
-                          onClick={() => openEdit({ ...vehicle, _id: vehicleId })}
-                          disabled={submitting}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-xs text-red-700 hover:bg-red-100"
-                          onClick={() => handleDelete(vehicleId)}
-                          disabled={submitting}
-                        >
-                          Eliminar
-                        </button>
+                          {isActive ? "Activo" : "Inactivo"}
+                        </span>
+                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-medium ${statusClass}`}>
+                          {statusLabel}
+                        </span>
+                        {!isActive && canActivate && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100"
+                            onClick={() => handleActivate(vehicleId)}
+                            disabled={activationDisabled}
+                          >
+                            {activateLabel}
+                          </button>
+                        )}
+                        {!isActive && !canActivate && (
+                          <span className="text-[11px] font-normal text-slate-500">{activateLabel}</span>
+                        )}
                       </div>
                     </div>
+
+                    <dl className="grid grid-cols-2 gap-3 text-xs text-slate-600">
+                      <div>
+                        <dt className="font-semibold uppercase tracking-wide text-slate-400">{modelAsYear ? "Año" : "Modelo"}</dt>
+                        <dd className="mt-1 text-sm text-slate-800">{modelValue || "Sin dato"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold uppercase tracking-wide text-slate-400">Capacidad</dt>
+                        <dd className="mt-1 text-sm text-slate-800">{capacityLabel}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold uppercase tracking-wide text-slate-400">SOAT</dt>
+                        <dd className="mt-1 text-sm text-slate-800">{soatExpires ? formatDateInput(soatExpires) : "Sin fecha"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold uppercase tracking-wide text-slate-400">Licencia</dt>
+                        <dd className="mt-1 text-sm text-slate-800">{licenseExpires ? formatDateInput(licenseExpires) : "Sin fecha"}</dd>
+                      </div>
+                    </dl>
+
+                    {warnings.length > 0 && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+                        <p className="font-semibold">Alertas</p>
+                        <ul className="mt-1 list-disc space-y-1 pl-4">
+                          {warnings.map((warning) => (
+                            <li key={warning}>{warning}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="mt-auto flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex flex-1 items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                        onClick={() => openEdit({ ...vehicle, _id: vehicleId })}
+                        disabled={submitting}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+                        onClick={() => handleDelete(vehicleId)}
+                        disabled={submitting}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+
                     {(vehicle.vehiclePhotoUrl || vehicle.soatPhotoUrl) && (
-                      <div className="mt-4 grid gap-2 text-xs text-blue-600">
+                      <div className="mt-3 grid gap-2 text-xs text-blue-600">
                         {vehicle.vehiclePhotoUrl && (
                           <a href={vehicle.vehiclePhotoUrl} target="_blank" rel="noreferrer" className="hover:underline">
                             Ver foto del vehículo
@@ -314,6 +368,17 @@ export default function VehiclesPage() {
                   </article>
                 );
               })}
+
+              <button
+                type="button"
+                onClick={openCreate}
+                className="flex h-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/40 px-6 py-8 text-center text-sm font-medium text-blue-600 hover:border-blue-300 hover:text-blue-500"
+                disabled={submitting}
+              >
+                <span className="text-3xl leading-none">+</span>
+                <span className="mt-2">Agregar nuevo vehículo</span>
+                <span className="mt-1 text-xs text-blue-500/70">Registra otra opción para tus viajes</span>
+              </button>
             </div>
           )}
         </>

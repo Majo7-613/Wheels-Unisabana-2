@@ -3,6 +3,7 @@ import { Router } from "express";
 import { requireAuth } from "../middlewares/auth.js";
 import Vehicle from "../models/Vehicle.js";
 import User from "../models/User.js";
+import Trip from "../models/Trip.js";
 
 const router = Router();
 
@@ -361,6 +362,19 @@ router.put("/:id", requireAuth, async (req, res) => {
 
 // DELETE /vehicles/:id: remove the vehicle if owned by the user.
 router.delete("/:id", requireAuth, async (req, res) => {
+  const blockingTrip = await Trip.findOne({
+    vehicle: req.params.id,
+    driver: req.user.sub,
+    status: { $in: ["scheduled", "full"] },
+    departureAt: { $gte: new Date() }
+  }).lean();
+
+  if (blockingTrip) {
+    return res.status(400).json({
+      error: "No puedes eliminar este vehículo mientras tenga viajes activos programados"
+    });
+  }
+
   const vehicle = await Vehicle.findOneAndDelete({ _id: req.params.id, owner: req.user.sub });
   if (!vehicle) return res.status(404).json({ error: "Vehículo no encontrado" });
 
