@@ -145,8 +145,8 @@ export default function Login() {
         )}
 
         <form onSubmit={onSubmit} className="grid gap-4">
-          <label className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
-            Correo institucional
+          <label className="flex flex-col gap-2 text-slate-500">
+            <span className="text-xs font-semibold uppercase tracking-[0.3em]">Correo institucional</span>
             <input
               type="email"
               placeholder="nombre@unisabana.edu.co"
@@ -159,7 +159,7 @@ export default function Login() {
                   setBannerError("");
                 }
               }}
-              className={`mt-2 w-full rounded-2xl border px-4 py-3 text-sm outline-none transition focus:ring-2 focus:ring-cyan-500 focus:border-cyan-400 ${
+              className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none transition focus:ring-2 focus:ring-cyan-500 focus:border-cyan-400 tracking-normal ${
                 fieldErrors.email
                   ? "border-red-400 bg-red-50 focus:ring-red-300 focus:border-red-400"
                   : "border-slate-200 bg-white"
@@ -170,8 +170,8 @@ export default function Login() {
             )}
           </label>
 
-          <label className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
-            Contraseña
+          <label className="flex flex-col gap-2 text-slate-500">
+            <span className="text-xs font-semibold uppercase tracking-[0.3em]">Contraseña</span>
             <input
               type="password"
               placeholder="******"
@@ -184,7 +184,7 @@ export default function Login() {
                   setBannerError("");
                 }
               }}
-              className={`mt-2 w-full rounded-2xl border px-4 py-3 text-sm outline-none transition focus:ring-2 focus:ring-cyan-500 focus:border-cyan-400 ${
+              className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none transition focus:ring-2 focus:ring-cyan-500 focus:border-cyan-400 tracking-normal ${
                 fieldErrors.password
                   ? "border-red-400 bg-red-50 focus:ring-red-300 focus:border-red-400"
                   : "border-slate-200 bg-white"
