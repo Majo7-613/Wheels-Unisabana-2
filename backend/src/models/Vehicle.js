@@ -21,17 +21,21 @@ const vehicleSchema = new mongoose.Schema(
     // Optional URLs to uploaded evidence (Cloud storage or CDN).
     vehiclePhotoUrl: { type: String, trim: true },
     soatPhotoUrl: { type: String, trim: true },
+    licensePhotoUrl: { type: String, trim: true },
 
     // Regulatory compliance metadata.
     soatExpiration: { type: Date, required: true },
     licenseNumber: { type: String, required: true, trim: true },
     licenseExpiration: { type: Date, required: true },
 
+    year: { type: Number, min: 1940, max: 2100 },
+    color: { type: String, trim: true },
+
     // Verification workflow metadata to support admin review and driver feedback loops.
     status: { type: String, enum: verificationStatuses, default: "pending" },
     statusUpdatedAt: { type: Date, default: () => new Date() },
     verificationNotes: { type: String, trim: true },
-  requestedReviewAt: { type: Date, default: null },
+    requestedReviewAt: { type: Date, default: null },
     reviewedAt: { type: Date },
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
 

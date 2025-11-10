@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import path from "path";
 import swaggerUi from "swagger-ui-express";
 import swaggerSpec from "./utils/swagger.js";
 // Feature route modules grouped by domain for separation of concerns.
@@ -26,6 +27,10 @@ app.use(cors());
 
 // Built-in JSON body parser; exposes req.body as a JavaScript object for APIs.
 app.use(express.json());
+
+// Serve uploaded assets (vehicle documents, photos) from configurable directory.
+const uploadsDir = path.resolve(process.cwd(), process.env.UPLOADS_DIR || "uploads");
+app.use("/uploads", express.static(uploadsDir));
 
 // Mongoose configuration tuned for dev: fail-fast without buffering (no silent queueing when DB is down)
 // and strictQuery to avoid ambiguous query parsing.

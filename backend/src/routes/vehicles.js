@@ -1,11 +1,60 @@
 // Vehicle management endpoints (CRUD + pickup points) scoped to the authenticated owner.
 import { Router } from "express";
+import path from "path";
+import multer from "multer";
 import { requireAuth } from "../middlewares/auth.js";
 import Vehicle from "../models/Vehicle.js";
 import User from "../models/User.js";
 import Trip from "../models/Trip.js";
+import { saveBufferFile, removeStoredFile } from "../utils/fileStorage.js";
 
 const router = Router();
+
+const allowedDocumentTypes = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif"
+]);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: Number(process.env.UPLOAD_MAX_SIZE_MB || 5) * 1024 * 1024
+  },
+  fileFilter: (_req, file, cb) => {
+    if (allowedDocumentTypes.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      const error = new Error("Tipo de archivo no permitido. Usa PDF o imagen.");
+      error.code = "UNSUPPORTED_FILE";
+      cb(error);
+    }
+  }
+});
+
+const uploadVehicleFields = upload.fields([
+  { name: "vehiclePhoto", maxCount: 1 },
+  { name: "soatDocument", maxCount: 1 },
+  { name: "licenseDocument", maxCount: 1 }
+]);
+
+function maybeHandleUpload(req, res, next) {
+  const contentType = req.headers["content-type"] || "";
+  if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
+    return next();
+  }
+  uploadVehicleFields(req, res, (err) => {
+    if (!err) return next();
+    const message =
+      err.code === "LIMIT_FILE_SIZE"
+        ? "El archivo supera el tamaño permitido (máx. 5 MB)."
+        : err.message || "No se pudo procesar el archivo";
+    return res.status(400).json({ error: message });
+  });
+}
 
 const verificationStatuses = Vehicle.verificationStatuses || [
   "pending",
@@ -144,18 +193,22 @@ function normalizePickupPoint(input) {
 
 // POST /vehicles: create a vehicle under the authenticated user.
 // Ownership is enforced by setting owner from the JWT subject.
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, maybeHandleUpload, async (req, res) => {
   const {
     plate,
     brand,
     model,
     capacity,
-    vehiclePhotoUrl,
-    soatPhotoUrl,
+    vehiclePhotoUrl: existingVehiclePhotoUrl,
+    soatPhotoUrl: existingSoatUrl,
+    licensePhotoUrl: existingLicenseUrl,
     soatExpiration,
     licenseNumber,
-    licenseExpiration
+    licenseExpiration,
+    year,
+    color
   } = req.body || {};
+
   const numericCapacity = Number(capacity);
   if (!plate || !brand || !model || !capacity || !soatExpiration || !licenseNumber || !licenseExpiration) {
     return res.status(400).json({ error: "Datos de vehículo incompletos" });
@@ -169,45 +222,109 @@ router.post("/", requireAuth, async (req, res) => {
   if (Number.isNaN(soatDate.getTime()) || Number.isNaN(licenseExpDate.getTime())) {
     return res.status(400).json({ error: "Fechas de documentos inválidas" });
   }
-  if (soatDate < new Date()) {
+  const now = new Date();
+  if (soatDate < now) {
     return res.status(400).json({ error: "SOAT vencido" });
   }
-  if (licenseExpDate < new Date()) {
+  if (licenseExpDate < now) {
     return res.status(400).json({ error: "Licencia vencida" });
   }
 
+  const files = req.files || {};
+  const soatFile = Array.isArray(files.soatDocument) ? files.soatDocument[0] : null;
+  const licenseFile = Array.isArray(files.licenseDocument) ? files.licenseDocument[0] : null;
+  const vehiclePhotoFile = Array.isArray(files.vehiclePhoto) ? files.vehiclePhoto[0] : null;
+
+  if (!soatFile && !existingSoatUrl) {
+    return res.status(400).json({ error: "Adjunta el documento del SOAT" });
+  }
+  if (!licenseFile && !existingLicenseUrl) {
+    return res.status(400).json({ error: "Adjunta el documento de la licencia" });
+  }
+
+  const storedPaths = [];
+
   try {
     const normalizedPlate = String(plate).trim().toUpperCase();
-    const v = await Vehicle.create({
+    const sanitizedBrand = String(brand || "").trim();
+    const sanitizedModel = String(model || "").trim();
+    const sanitizedLicense = String(licenseNumber || "").trim();
+    const trimmedColor = color ? String(color).trim() : undefined;
+    const yearNumber = year ? Number(year) : undefined;
+    if (year !== undefined && !Number.isFinite(yearNumber)) {
+      return res.status(400).json({ error: "Año de vehículo inválido" });
+    }
+    if (
+      Number.isFinite(yearNumber) &&
+      (yearNumber < 1980 || yearNumber > new Date().getFullYear() + 1)
+    ) {
+      return res.status(400).json({ error: "Año de vehículo inválido" });
+    }
+
+    let vehiclePhotoUrl = existingVehiclePhotoUrl || undefined;
+    let soatUrl = existingSoatUrl || undefined;
+    let licenseUrl = existingLicenseUrl || undefined;
+
+    const subfolder = path.join("vehicles", String(req.user.sub));
+
+    if (vehiclePhotoFile) {
+      const saved = await saveBufferFile(vehiclePhotoFile, { subfolder });
+      storedPaths.push(saved.relativePath);
+      vehiclePhotoUrl = saved.relativePath;
+    }
+
+    if (soatFile) {
+      const saved = await saveBufferFile(soatFile, { subfolder });
+      storedPaths.push(saved.relativePath);
+      soatUrl = saved.relativePath;
+    }
+
+    if (licenseFile) {
+      const saved = await saveBufferFile(licenseFile, { subfolder });
+      storedPaths.push(saved.relativePath);
+      licenseUrl = saved.relativePath;
+    }
+
+    const vehicle = await Vehicle.create({
       owner: req.user.sub,
       plate: normalizedPlate,
-      brand,
-      model,
+      brand: sanitizedBrand,
+      model: sanitizedModel,
       capacity: numericCapacity,
       vehiclePhotoUrl,
-      soatPhotoUrl,
+      soatPhotoUrl: soatUrl,
+      licensePhotoUrl: licenseUrl,
       soatExpiration: soatDate,
-      licenseNumber,
-  licenseExpiration: licenseExpDate,
-  status: "pending",
-  statusUpdatedAt: new Date(),
-  requestedReviewAt: null
+      licenseNumber: sanitizedLicense,
+      licenseExpiration: licenseExpDate,
+      year: Number.isFinite(yearNumber) ? yearNumber : undefined,
+      color: trimmedColor || undefined,
+      status: "pending",
+      statusUpdatedAt: now,
+      requestedReviewAt: null
     });
 
     const user = await User.findById(req.user.sub);
-    if (user && !user.roles.includes("driver")) {
-      user.roles.push("driver");
+    if (user) {
+      if (!user.roles.includes("driver")) {
+        user.roles.push("driver");
+      }
+      if (!user.activeVehicle) {
+        user.activeVehicle = vehicle._id;
+      }
+      await user.save();
     }
-    if (user && !user.activeVehicle) {
-      user.activeVehicle = v._id;
-    }
-    if (user) await user.save();
 
-    res.status(201).json(decorateVehicle(v.toObject()));
+    res.status(201).json(decorateVehicle(vehicle.toObject()));
   } catch (err) {
-    if (err?.code === 11000) {
-      if (err.keyValue?.plate) return res.status(409).json({ error: "Placa ya registrada" });
+    if (storedPaths.length) {
+      await Promise.all(storedPaths.map((relativePath) => removeStoredFile(relativePath)));
     }
+
+    if (err?.code === 11000 && err.keyValue?.plate) {
+      return res.status(409).json({ error: "Placa ya registrada" });
+    }
+
     console.error("vehicle create", err);
     res.status(500).json({ error: "No se pudo registrar el vehículo" });
   }
@@ -221,24 +338,36 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 // PUT /vehicles/:id: update a vehicle if it belongs to the user.
-router.put("/:id", requireAuth, async (req, res) => {
+router.put("/:id", requireAuth, maybeHandleUpload, async (req, res) => {
   const {
     plate,
     brand,
     model,
     capacity,
-    vehiclePhotoUrl,
-    soatPhotoUrl,
+    vehiclePhotoUrl: incomingVehiclePhotoUrl,
+    soatPhotoUrl: incomingSoatUrl,
+    licensePhotoUrl: incomingLicenseUrl,
     pickupPoints,
     soatExpiration,
     licenseNumber,
-    licenseExpiration
+    licenseExpiration,
+    year,
+    color
   } = req.body || {};
+
   try {
     const vehicle = await Vehicle.findOne({ _id: req.params.id, owner: req.user.sub });
     if (!vehicle) return res.status(404).json({ error: "Vehículo no encontrado" });
 
     let reviewTriggered = false;
+    const subfolder = path.join("vehicles", String(req.user.sub));
+    const files = req.files || {};
+    const soatFile = Array.isArray(files.soatDocument) ? files.soatDocument[0] : null;
+    const licenseFile = Array.isArray(files.licenseDocument) ? files.licenseDocument[0] : null;
+    const vehiclePhotoFile = Array.isArray(files.vehiclePhoto) ? files.vehiclePhoto[0] : null;
+
+    const newStoredPaths = [];
+    const toRemoveAfterSuccess = [];
 
     if (plate !== undefined) {
       const normalizedPlate = String(plate).trim().toUpperCase();
@@ -269,14 +398,40 @@ router.put("/:id", requireAuth, async (req, res) => {
       vehicle.model = trimmedModel;
     }
 
-    if (vehiclePhotoUrl !== undefined) {
-      if (vehicle.vehiclePhotoUrl !== vehiclePhotoUrl) reviewTriggered = true;
-      vehicle.vehiclePhotoUrl = vehiclePhotoUrl || undefined;
+    if (vehiclePhotoFile) {
+      const saved = await saveBufferFile(vehiclePhotoFile, { subfolder });
+      newStoredPaths.push(saved.relativePath);
+      if (vehicle.vehiclePhotoUrl) toRemoveAfterSuccess.push(vehicle.vehiclePhotoUrl);
+      vehicle.vehiclePhotoUrl = saved.relativePath;
+      reviewTriggered = true;
+    } else if (incomingVehiclePhotoUrl !== undefined) {
+      if (vehicle.vehiclePhotoUrl !== incomingVehiclePhotoUrl) reviewTriggered = true;
+      if (!incomingVehiclePhotoUrl && vehicle.vehiclePhotoUrl) {
+        toRemoveAfterSuccess.push(vehicle.vehiclePhotoUrl);
+      }
+      vehicle.vehiclePhotoUrl = incomingVehiclePhotoUrl || undefined;
     }
 
-    if (soatPhotoUrl !== undefined) {
-      if (vehicle.soatPhotoUrl !== soatPhotoUrl) reviewTriggered = true;
-      vehicle.soatPhotoUrl = soatPhotoUrl || undefined;
+    if (soatFile) {
+      const saved = await saveBufferFile(soatFile, { subfolder });
+      newStoredPaths.push(saved.relativePath);
+      if (vehicle.soatPhotoUrl) toRemoveAfterSuccess.push(vehicle.soatPhotoUrl);
+      vehicle.soatPhotoUrl = saved.relativePath;
+      reviewTriggered = true;
+    } else if (incomingSoatUrl !== undefined) {
+      if (vehicle.soatPhotoUrl !== incomingSoatUrl) reviewTriggered = true;
+      vehicle.soatPhotoUrl = incomingSoatUrl || undefined;
+    }
+
+    if (licenseFile) {
+      const saved = await saveBufferFile(licenseFile, { subfolder });
+      newStoredPaths.push(saved.relativePath);
+      if (vehicle.licensePhotoUrl) toRemoveAfterSuccess.push(vehicle.licensePhotoUrl);
+      vehicle.licensePhotoUrl = saved.relativePath;
+      reviewTriggered = true;
+    } else if (incomingLicenseUrl !== undefined) {
+      if (vehicle.licensePhotoUrl !== incomingLicenseUrl) reviewTriggered = true;
+      vehicle.licensePhotoUrl = incomingLicenseUrl || undefined;
     }
 
     if (capacity !== undefined) {
@@ -302,7 +457,8 @@ router.put("/:id", requireAuth, async (req, res) => {
       if (Number.isNaN(soatDate.getTime())) {
         return res.status(400).json({ error: "Fecha de SOAT inválida" });
       }
-      if (soatDate < new Date()) {
+      const now = new Date();
+      if (soatDate < now) {
         return res.status(400).json({ error: "SOAT vencido" });
       }
       if (!vehicle.soatExpiration || vehicle.soatExpiration.getTime() !== soatDate.getTime()) {
@@ -316,13 +472,34 @@ router.put("/:id", requireAuth, async (req, res) => {
       if (Number.isNaN(licenseDate.getTime())) {
         return res.status(400).json({ error: "Fecha de licencia inválida" });
       }
-      if (licenseDate < new Date()) {
+      const now = new Date();
+      if (licenseDate < now) {
         return res.status(400).json({ error: "Licencia vencida" });
       }
       if (!vehicle.licenseExpiration || vehicle.licenseExpiration.getTime() !== licenseDate.getTime()) {
         reviewTriggered = true;
       }
       vehicle.licenseExpiration = licenseDate;
+    }
+
+    if (year !== undefined) {
+      const parsedYear = Number(year);
+      if (!Number.isFinite(parsedYear) || parsedYear < 1980 || parsedYear > new Date().getFullYear() + 1) {
+        return res.status(400).json({ error: "Año de vehículo inválido" });
+      }
+      if (vehicle.year !== parsedYear) reviewTriggered = true;
+      vehicle.year = parsedYear;
+    }
+
+    if (color !== undefined) {
+      const trimmedColor = String(color).trim();
+      if (!trimmedColor) {
+        if (vehicle.color) reviewTriggered = true;
+        vehicle.color = undefined;
+      } else {
+        if (vehicle.color !== trimmedColor) reviewTriggered = true;
+        vehicle.color = trimmedColor;
+      }
     }
 
     if (pickupPoints !== undefined) {
@@ -350,8 +527,16 @@ router.put("/:id", requireAuth, async (req, res) => {
     }
 
     await vehicle.save();
+
+    if (toRemoveAfterSuccess.length) {
+      await Promise.all(toRemoveAfterSuccess.map((relativePath) => removeStoredFile(relativePath)));
+    }
+
     res.json(decorateVehicle(vehicle.toObject()));
   } catch (err) {
+    if (Array.isArray(newStoredPaths) && newStoredPaths.length) {
+      await Promise.all(newStoredPaths.map((relativePath) => removeStoredFile(relativePath)));
+    }
     if (err?.code === 11000 && err.keyValue?.plate) {
       return res.status(409).json({ error: "Placa ya registrada" });
     }
