@@ -296,17 +296,6 @@ export default function VehiclesPage() {
     default: "border-slate-200 bg-slate-100 text-slate-600"
   };
 
-  if (!isDriver && vehicles.length === 0 && mode === "list") {
-    return (
-      <section className="py-6">
-        <h1 className="text-2xl font-semibold text-slate-900">Mis vehículos</h1>
-        <p className="mt-3 text-sm text-slate-600">
-          Cambia al rol de conductor para registrar tu vehículo y compartir viajes.
-        </p>
-      </section>
-    );
-  }
-
   function DocumentUploadField({ name, label, required, helper, file, existingUrl, error: fieldError, onSelect }) {
     const inputId = `${name}-file-input`;
     return (
@@ -396,6 +385,12 @@ export default function VehiclesPage() {
           </p>
         )}
       </header>
+
+      {!isDriver && vehicles.length === 0 && mode === "list" ? (
+        <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          Para activar el rol de conductor primero registra un vehículo. Una vez aprobado podrás cambiar de pasajero a conductor desde tu perfil.
+        </div>
+      ) : null}
 
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
