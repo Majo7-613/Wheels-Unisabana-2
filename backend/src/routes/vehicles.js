@@ -7,6 +7,12 @@ import Vehicle from "../models/Vehicle.js";
 import User from "../models/User.js";
 import Trip from "../models/Trip.js";
 import { saveBufferFile, removeStoredFile } from "../utils/fileStorage.js";
+import {
+  validatePlate,
+  validateCapacity,
+  validateBasics,
+  VEHICLE_LIMITS
+} from "../utils/vehicleValidation.js";
 
 const router = Router();
 
@@ -209,13 +215,21 @@ router.post("/", requireAuth, maybeHandleUpload, async (req, res) => {
     color
   } = req.body || {};
 
-  const numericCapacity = Number(capacity);
   if (!plate || !brand || !model || !capacity || !soatExpiration || !licenseNumber || !licenseExpiration) {
     return res.status(400).json({ error: "Datos de vehículo incompletos" });
   }
-  if (!Number.isInteger(numericCapacity) || numericCapacity < 1 || numericCapacity > 8) {
-    return res.status(400).json({ error: "Capacidad de vehículo inválida" });
+
+  const plateValidation = validatePlate(plate);
+  if (!plateValidation.ok) {
+    return res.status(400).json({ error: plateValidation.message });
   }
+
+  const capacityValidation = validateCapacity(capacity);
+  if (!capacityValidation.ok) {
+    return res.status(400).json({ error: capacityValidation.message });
+  }
+
+  const numericCapacity = capacityValidation.value;
 
   const soatDate = new Date(soatExpiration);
   const licenseExpDate = new Date(licenseExpiration);
@@ -245,7 +259,7 @@ router.post("/", requireAuth, maybeHandleUpload, async (req, res) => {
   const storedPaths = [];
 
   try {
-    const normalizedPlate = String(plate).trim().toUpperCase();
+  const normalizedPlate = plateValidation.value;
     const sanitizedBrand = String(brand || "").trim();
     const sanitizedModel = String(model || "").trim();
     const sanitizedLicense = String(licenseNumber || "").trim();
@@ -337,6 +351,18 @@ router.get("/", requireAuth, async (req, res) => {
   res.json(list.map((vehicle) => decorateVehicle(vehicle)));
 });
 
+router.post("/validate", requireAuth, (req, res) => {
+  const { plate, capacity } = req.body || {};
+  const validation = validateBasics({ plate, capacity });
+
+  return res.json({
+    ok: validation.ok,
+    errors: validation.errors,
+    normalized: validation.normalized,
+    limits: VEHICLE_LIMITS
+  });
+});
+
 // PUT /vehicles/:id: update a vehicle if it belongs to the user.
 router.put("/:id", requireAuth, maybeHandleUpload, async (req, res) => {
   const {
@@ -370,9 +396,10 @@ router.put("/:id", requireAuth, maybeHandleUpload, async (req, res) => {
     const toRemoveAfterSuccess = [];
 
     if (plate !== undefined) {
-      const normalizedPlate = String(plate).trim().toUpperCase();
-      if (!normalizedPlate) {
-        return res.status(400).json({ error: "Placa requerida" });
+      const plateValidation = validatePlate(plate);
+      const normalizedPlate = plateValidation.value;
+      if (!plateValidation.ok) {
+        return res.status(400).json({ error: plateValidation.message });
       }
       if (normalizedPlate !== vehicle.plate) {
         reviewTriggered = true;
@@ -435,10 +462,11 @@ router.put("/:id", requireAuth, maybeHandleUpload, async (req, res) => {
     }
 
     if (capacity !== undefined) {
-      const numericCapacity = Number(capacity);
-      if (!Number.isInteger(numericCapacity) || numericCapacity < 1 || numericCapacity > 8) {
-        return res.status(400).json({ error: "Capacidad de vehículo inválida" });
+      const capacityValidation = validateCapacity(capacity);
+      if (!capacityValidation.ok) {
+        return res.status(400).json({ error: capacityValidation.message });
       }
+      const numericCapacity = capacityValidation.value;
       if (vehicle.capacity !== numericCapacity) reviewTriggered = true;
       vehicle.capacity = numericCapacity;
     }

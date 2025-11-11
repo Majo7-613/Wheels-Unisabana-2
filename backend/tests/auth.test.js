@@ -142,6 +142,7 @@ describe("Auth API", () => {
         capacity: 4,
         vehiclePhotoUrl: "https://example.com/car.jpg",
         soatPhotoUrl: "https://example.com/soat.jpg",
+        licensePhotoUrl: "https://example.com/license.jpg",
         soatExpiration: new Date(Date.now() + 86400000).toISOString(),
         licenseNumber: "LIC123",
         licenseExpiration: new Date(Date.now() + 86400000 * 365).toISOString()
@@ -165,7 +166,9 @@ describe("Auth API", () => {
       soatExpiration: new Date(Date.now() + 86400000 * 5).toISOString(),
       licenseNumber: "LIC789",
       licenseExpiration: new Date(Date.now() + 86400000 * 400).toISOString(),
-      vehiclePhotoUrl: "https://example.com/vehicle2.jpg"
+      vehiclePhotoUrl: "https://example.com/vehicle2.jpg",
+      soatPhotoUrl: "https://example.com/soat.pdf",
+      licensePhotoUrl: "https://example.com/license.pdf"
     };
 
     const createVehicleRes = await request(app)

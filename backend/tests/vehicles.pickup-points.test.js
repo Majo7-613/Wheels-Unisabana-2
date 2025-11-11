@@ -12,9 +12,9 @@ jest.setTimeout(30000);
 
 async function bootstrapDriver(email = "driver@unisabana.edu.co") {
   const password = "SecurePass123";
-  const basePlate = Math.random().toString(36).slice(2, 7).toUpperCase();
-  const noSymbols = basePlate.replace(/[^A-Z0-9]/g, "");
-  const paddedPlate = (noSymbols + "AAA000").slice(0, 6);
+  const letters = Array.from({ length: 3 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join("");
+  const digits = String(Math.floor(Math.random() * 900) + 100);
+  const paddedPlate = `${letters}${digits}`;
 
   await request(app).post("/auth/register").send({
     email,
@@ -39,8 +39,11 @@ async function bootstrapDriver(email = "driver@unisabana.edu.co") {
       soatExpiration: new Date(Date.now() + 86400000 * 10).toISOString(),
       licenseNumber: `LIC-${paddedPlate}`,
       licenseExpiration: new Date(Date.now() + 86400000 * 200).toISOString(),
-      vehiclePhotoUrl: "https://example.com/vehicle.jpg"
-    });
+      vehiclePhotoUrl: "https://example.com/vehicle.jpg",
+      soatPhotoUrl: "https://example.com/soat.pdf",
+      licensePhotoUrl: "https://example.com/license.pdf"
+    })
+    .expect(201);
 
   return { token, vehicleId: vehicleRes.body._id };
 }

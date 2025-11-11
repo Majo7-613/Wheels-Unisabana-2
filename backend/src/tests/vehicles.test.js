@@ -43,7 +43,9 @@ function buildVehiclePayload(overrides = {}) {
     soatExpiration: new Date(Date.now() + 1000 * 60 * 60 * 24 * 90).toISOString(),
     licenseNumber: `LIC${Math.floor(Math.random() * 900 + 100)}`,
     licenseExpiration: new Date(Date.now() + 1000 * 60 * 60 * 24 * 180).toISOString(),
-    vehiclePhotoUrl: "https://example.com/vehicle.jpg"
+    vehiclePhotoUrl: "https://example.com/vehicle.jpg",
+    soatPhotoUrl: "https://example.com/soat.pdf",
+    licensePhotoUrl: "https://example.com/license.pdf"
   };
   return { ...base, ...overrides };
 }
@@ -112,6 +114,43 @@ describe("Vehicles management", () => {
 
     const refreshedUser = await User.findById(userId).lean();
     expect(String(refreshedUser.activeVehicle)).toBe(String(createSecond.body._id));
+  });
+
+  it("validates plate and capacity through the API helper", async () => {
+    const { token } = await registerAndLogin({ emailSuffix: "validate" });
+
+    const successRes = await request(app)
+      .post("/vehicles/validate")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ plate: "abc123", capacity: 4 })
+      .expect(200);
+
+    expect(successRes.body.ok).toBe(true);
+    expect(successRes.body.errors).toEqual([]);
+    expect(successRes.body.normalized.plate).toBe("ABC123");
+
+    const invalidRes = await request(app)
+      .post("/vehicles/validate")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ plate: "12A345", capacity: 12 })
+      .expect(200);
+
+    expect(invalidRes.body.ok).toBe(false);
+    const fields = invalidRes.body.errors.map((err) => err.field);
+    expect(fields).toContain("plate");
+    expect(fields).toContain("capacity");
+  });
+
+  it("rejects vehicle creation when plate format is invalid", async () => {
+    const { token } = await registerAndLogin({ emailSuffix: "badplate" });
+
+    const res = await request(app)
+      .post("/vehicles")
+      .set("Authorization", `Bearer ${token}`)
+      .send(buildVehiclePayload({ plate: "12A345" }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/placa/i);
   });
 
   it("prevents deleting a vehicle while trips are scheduled", async () => {

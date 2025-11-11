@@ -292,6 +292,7 @@ describe("Auth routes", () => {
         capacity: 4,
         vehiclePhotoUrl: "https://example.com/vehicle.jpg",
         soatPhotoUrl: "https://example.com/soat.jpg",
+        licensePhotoUrl: "https://example.com/license.jpg",
         soatExpiration: new Date(Date.now() + 86400000).toISOString(),
         licenseNumber: "LIC001",
         licenseExpiration: new Date(Date.now() + 86400000 * 200).toISOString()
@@ -314,7 +315,9 @@ describe("Auth routes", () => {
       soatExpiration: new Date(Date.now() + 86400000 * 5).toISOString(),
       licenseNumber: "LIC002",
       licenseExpiration: new Date(Date.now() + 86400000 * 400).toISOString(),
-      vehiclePhotoUrl: "https://example.com/vehicle2.jpg"
+      vehiclePhotoUrl: "https://example.com/vehicle2.jpg",
+      soatPhotoUrl: "https://example.com/soat.pdf",
+      licensePhotoUrl: "https://example.com/license.pdf"
     };
 
     const createRes = await request(app)
@@ -372,7 +375,9 @@ describe("Auth routes", () => {
       soatExpiration: new Date(Date.now() + 86400000 * 90).toISOString(),
       licenseNumber: "LIC333",
       licenseExpiration: new Date(Date.now() + 86400000 * 180).toISOString(),
-      vehiclePhotoUrl: "https://example.com/mazda.jpg"
+      vehiclePhotoUrl: "https://example.com/mazda.jpg",
+      soatPhotoUrl: "https://example.com/soat.pdf",
+      licensePhotoUrl: "https://example.com/license.pdf"
     };
 
     const createVehicleRes = await request(app)

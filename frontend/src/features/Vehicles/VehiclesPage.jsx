@@ -3,6 +3,7 @@ import api from "../../utils/api";
 import { useAuth } from "../../context/AuthContext.jsx";
 
 const ACCEPTED_DOCUMENT_TYPES = ".pdf,.jpeg,.jpg,.png,.webp,.heic,.heif";
+const PLATE_REGEX = /^(?:[A-Z]{3}[0-9]{3}|[A-Z]{3}[0-9]{2}[A-Z])$/;
 const initialForm = {
   plate: "",
   brand: "",
@@ -142,7 +143,11 @@ export default function VehiclesPage() {
   }
 
   function updateField(field, value) {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    const nextValue =
+      field === "plate" && typeof value === "string"
+        ? value.toUpperCase().replace(/\s+/g, "")
+        : value;
+    setForm((prev) => ({ ...prev, [field]: nextValue }));
     setFormErrors((prev) => ({ ...prev, [field]: undefined }));
   }
 
@@ -154,6 +159,9 @@ export default function VehiclesPage() {
   function validateForm() {
     const errors = {};
     if (!form.plate.trim()) errors.plate = "Ingresa la placa";
+    if (form.plate.trim() && !PLATE_REGEX.test(form.plate.trim().toUpperCase())) {
+      errors.plate = "Formato inválido. Usa valores como ABC123 o ABC12D";
+    }
     if (!form.brand.trim()) errors.brand = "Ingresa la marca";
     if (!form.model.trim()) errors.model = "Ingresa el modelo";
     if (!form.capacity) errors.capacity = "Ingresa la capacidad";
