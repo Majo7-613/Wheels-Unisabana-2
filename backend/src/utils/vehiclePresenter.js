@@ -76,8 +76,10 @@ export function decorateVehicle(vehicleDoc, now = new Date()) {
     warnings.push(Number.isFinite(days) ? `Licencia por vencer (${days} días)` : "Licencia por vencer");
   }
 
+  const acceptableDocumentStatuses = new Set(["valid", "expiring"]);
   const documentsOk =
-    documentStatus.soat.status === "valid" && documentStatus.license.status === "valid";
+    acceptableDocumentStatuses.has(documentStatus.soat.status) &&
+    acceptableDocumentStatuses.has(documentStatus.license.status);
 
   const statusKey = vehicle?.status || "pending";
   const statusInfo = STATUS_COPY[statusKey] || {

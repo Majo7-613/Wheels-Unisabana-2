@@ -13,7 +13,7 @@ import {
   validateBasics,
   VEHICLE_LIMITS
 } from "../utils/vehicleValidation.js";
-import { decorateVehicle, VERIFICATION_STATUSES } from "../utils/vehiclePresenter.js";
+import { decorateVehicle, evaluateDriverReadiness, VERIFICATION_STATUSES } from "../utils/vehiclePresenter.js";
 
 const router = Router();
 
@@ -253,6 +253,20 @@ router.post("/validate", requireAuth, (req, res) => {
     errors: validation.errors,
     normalized: validation.normalized,
     limits: VEHICLE_LIMITS
+  });
+});
+
+router.get("/documents/validate", requireAuth, async (req, res) => {
+  const user = await User.findById(req.user.sub).lean();
+  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  const vehicles = await Vehicle.find({ owner: req.user.sub }).lean();
+  const evaluation = evaluateDriverReadiness(vehicles, {
+    activeVehicle: user.activeVehicle
+  });
+
+  return res.json({
+    readiness: evaluation
   });
 });
 

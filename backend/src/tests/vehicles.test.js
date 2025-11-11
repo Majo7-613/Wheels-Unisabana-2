@@ -208,4 +208,63 @@ describe("Vehicles management", () => {
     expect(userAfterDelete.roles).not.toContain("driver");
     expect(userAfterDelete.activeVehicle).toBeNull();
   });
+
+  it("evaluates document readiness and flags expiring records", async () => {
+    const { token, userId } = await registerAndLogin({ emailSuffix: "docready" });
+
+    const stableVehiclePayload = buildVehiclePayload({
+      plate: "DOC111",
+      soatExpiration: new Date(Date.now() + 1000 * 60 * 60 * 24 * 120).toISOString(),
+      licenseExpiration: new Date(Date.now() + 1000 * 60 * 60 * 24 * 200).toISOString()
+    });
+
+    const expiringVehiclePayload = buildVehiclePayload({
+      plate: "DOC222",
+      soatExpiration: new Date(Date.now() + 1000 * 60 * 60 * 24 * 10).toISOString(),
+      licenseExpiration: new Date(Date.now() + 1000 * 60 * 60 * 24 * 90).toISOString()
+    });
+
+    const stableRes = await request(app)
+      .post("/vehicles")
+      .set("Authorization", `Bearer ${token}`)
+      .send(stableVehiclePayload)
+      .expect(201);
+
+    const expiringRes = await request(app)
+      .post("/vehicles")
+      .set("Authorization", `Bearer ${token}`)
+      .send(expiringVehiclePayload)
+      .expect(201);
+
+    await Vehicle.updateMany(
+      { owner: userId },
+      {
+        status: "verified",
+        statusUpdatedAt: new Date()
+      }
+    );
+
+    const readinessRes = await request(app)
+      .get("/vehicles/documents/validate")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    const readiness = readinessRes.body?.readiness;
+    expect(readiness).toBeTruthy();
+    expect(readiness.eligible).toBe(true);
+    expect(readiness.summary?.expiringDocuments).toBeGreaterThanOrEqual(1);
+    expect(readiness.summary?.expiredDocuments).toBe(0);
+
+    const docStatuses = readiness.vehicles?.flatMap((vehicle) => {
+      const soatStatus = vehicle?.meta?.documents?.soat?.status;
+      const licenseStatus = vehicle?.meta?.documents?.license?.status;
+      return [soatStatus, licenseStatus].filter(Boolean);
+    });
+
+    expect(docStatuses).toContain("expiring");
+    expect(docStatuses).toContain("valid");
+
+    const expiringVehicle = readiness.vehicles.find((vehicle) => vehicle.plate === "DOC222");
+    expect(expiringVehicle?.meta?.warnings?.some((msg) => /SOAT/gi.test(msg))).toBe(true);
+  });
 });
