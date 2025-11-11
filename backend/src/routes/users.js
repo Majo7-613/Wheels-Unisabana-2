@@ -3,6 +3,7 @@ import { Router } from "express";
 import { requireAuth } from "../middlewares/auth.js";
 import User from "../models/User.js";
 import Vehicle from "../models/Vehicle.js";
+import { evaluateDriverReadiness } from "../utils/vehiclePresenter.js";
 
 const router = Router();
 
@@ -18,6 +19,26 @@ router.get("/me", requireAuth, async (req, res) => {
   if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
   const vehicle = await Vehicle.findOne({ owner: user._id }).lean();
   res.json({ user: toPublicUser(user), vehicle });
+});
+
+router.get("/me/driver-readiness", requireAuth, async (req, res) => {
+  const user = await User.findById(req.user.sub).lean();
+  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  const vehicles = await Vehicle.find({ owner: user._id }).lean();
+  const readiness = evaluateDriverReadiness(vehicles, {
+    activeVehicle: user.activeVehicle
+  });
+
+  return res.json({
+    user: {
+      id: user._id,
+      roles: user.roles,
+      activeRole: user.activeRole,
+      activeVehicle: user.activeVehicle
+    },
+    readiness
+  });
 });
 
 // PUT /users/me: update editable profile fields.

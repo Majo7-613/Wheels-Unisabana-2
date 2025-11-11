@@ -411,4 +411,119 @@ describe("Auth routes", () => {
       .expect(200);
     expect(passengerSwitch.body?.user?.activeRole).toBe("passenger");
   });
+
+  describe("driver readiness endpoint", () => {
+    it("returns no_vehicle status when user has no vehicles", async () => {
+      const payload = {
+        email: "novehicle@unisabana.edu.co",
+        firstName: "No",
+        lastName: "Vehicle",
+        universityId: "A00088880",
+        phone: "3001234560",
+        password: "SecurePass123"
+      };
+
+      await request(app).post("/auth/register").send(payload).expect(201);
+
+      const loginRes = await request(app)
+        .post("/auth/login")
+        .send({ email: payload.email, password: payload.password })
+        .expect(200);
+
+      const readinessRes = await request(app)
+        .get("/users/me/driver-readiness")
+        .set("Authorization", `Bearer ${loginRes.body.token}`)
+        .expect(200);
+
+      expect(readinessRes.body?.readiness?.eligible).toBe(false);
+      expect(readinessRes.body?.readiness?.status).toBe("no_vehicle");
+      expect(readinessRes.body?.readiness?.reasons?.[0]).toMatch(/Registra/i);
+    });
+
+    it("marks user ready when there is a verified vehicle", async () => {
+      const payload = {
+        email: "ready@unisabana.edu.co",
+        firstName: "Ready",
+        lastName: "Driver",
+        universityId: "A00088881",
+        phone: "3001234561",
+        password: "SecurePass123"
+      };
+
+      await request(app).post("/auth/register").send(payload).expect(201);
+
+      const loginRes = await request(app)
+        .post("/auth/login")
+        .send({ email: payload.email, password: payload.password })
+        .expect(200);
+
+      const user = await User.findOne({ email: payload.email }).lean();
+
+      await Vehicle.create({
+        owner: user._id,
+        plate: "ABC123",
+        brand: "Mazda",
+        model: "3",
+        capacity: 4,
+        soatExpiration: new Date(Date.now() + 86400000 * 60),
+        licenseNumber: "LIC123",
+        licenseExpiration: new Date(Date.now() + 86400000 * 120),
+        status: "verified",
+        statusUpdatedAt: new Date()
+      });
+
+      const readinessRes = await request(app)
+        .get("/users/me/driver-readiness")
+        .set("Authorization", `Bearer ${loginRes.body.token}`)
+        .expect(200);
+
+      expect(readinessRes.body?.readiness?.eligible).toBe(true);
+      expect(readinessRes.body?.readiness?.status).toBe("ready");
+      expect(readinessRes.body?.readiness?.primaryVehicleId).toBeTruthy();
+      expect(readinessRes.body?.readiness?.summary?.verified).toBe(1);
+    });
+
+    it("detects expired documents and blocks readiness", async () => {
+      const payload = {
+        email: "expired@unisabana.edu.co",
+        firstName: "Expired",
+        lastName: "Driver",
+        universityId: "A00088882",
+        phone: "3001234562",
+        password: "SecurePass123"
+      };
+
+      await request(app).post("/auth/register").send(payload).expect(201);
+
+      const loginRes = await request(app)
+        .post("/auth/login")
+        .send({ email: payload.email, password: payload.password })
+        .expect(200);
+
+      const user = await User.findOne({ email: payload.email }).lean();
+
+      await Vehicle.create({
+        owner: user._id,
+        plate: "XYZ987",
+        brand: "Renault",
+        model: "Logan",
+        capacity: 4,
+        soatExpiration: new Date(Date.now() - 86400000),
+        licenseNumber: "LIC987",
+        licenseExpiration: new Date(Date.now() + 86400000 * 30),
+        status: "verified",
+        statusUpdatedAt: new Date()
+      });
+
+      const readinessRes = await request(app)
+        .get("/users/me/driver-readiness")
+        .set("Authorization", `Bearer ${loginRes.body.token}`)
+        .expect(200);
+
+      expect(readinessRes.body?.readiness?.eligible).toBe(false);
+      expect(readinessRes.body?.readiness?.status).toBe("expired_documents");
+      expect(readinessRes.body?.readiness?.reasons?.[0]).toMatch(/documentos/i);
+      expect(readinessRes.body?.readiness?.summary?.expiredDocuments).toBe(1);
+    });
+  });
 });

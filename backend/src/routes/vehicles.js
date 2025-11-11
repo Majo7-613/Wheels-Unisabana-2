@@ -13,6 +13,7 @@ import {
   validateBasics,
   VEHICLE_LIMITS
 } from "../utils/vehicleValidation.js";
+import { decorateVehicle, VERIFICATION_STATUSES } from "../utils/vehiclePresenter.js";
 
 const router = Router();
 
@@ -62,115 +63,7 @@ function maybeHandleUpload(req, res, next) {
   });
 }
 
-const verificationStatuses = Vehicle.verificationStatuses || [
-  "pending",
-  "under_review",
-  "verified",
-  "rejected",
-  "needs_update"
-];
-
-const statusCopy = {
-  pending: {
-    label: "Vehículo pendiente",
-    description: "Enviaste los datos. Aún está pendiente solicitar o completar la verificación.",
-    severity: "info"
-  },
-  under_review: {
-    label: "En revisión",
-    description: "Nuestro equipo está validando los documentos del vehículo.",
-    severity: "info"
-  },
-  verified: {
-    label: "Vehículo verificado",
-    description: "Documentos al día. Puedes activar este vehículo para tus viajes.",
-    severity: "success"
-  },
-  rejected: {
-    label: "Verificación rechazada",
-    description: "Hay observaciones pendientes. Revisa las notas y actualiza la información.",
-    severity: "danger"
-  },
-  needs_update: {
-    label: "Actualiza documentos",
-    description: "Actualiza SOAT o licencia antes de solicitar una nueva verificación.",
-    severity: "warning"
-  }
-};
-
-function computeDocumentStatus(expirationDate, now = new Date()) {
-  if (!expirationDate) {
-    return { status: "missing", expiresOn: null, daysUntilExpiration: null };
-  }
-  const date = new Date(expirationDate);
-  if (Number.isNaN(date.getTime())) {
-    return { status: "invalid", expiresOn: null, daysUntilExpiration: null };
-  }
-  const diff = date.getTime() - now.getTime();
-  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-  if (diff < 0) {
-    return { status: "expired", expiresOn: date, daysUntilExpiration: days };
-  }
-  if (days <= 30) {
-    return { status: "expiring", expiresOn: date, daysUntilExpiration: days };
-  }
-  return { status: "valid", expiresOn: date, daysUntilExpiration: days };
-}
-
-function decorateVehicle(vehicleDoc) {
-  const vehicle = typeof vehicleDoc?.toObject === "function" ? vehicleDoc.toObject() : vehicleDoc;
-  const now = new Date();
-  const documentStatus = {
-    soat: computeDocumentStatus(vehicle?.soatExpiration, now),
-    license: computeDocumentStatus(vehicle?.licenseExpiration, now)
-  };
-
-  const warnings = [];
-  if (documentStatus.soat.status === "expired") warnings.push("SOAT vencido");
-  if (documentStatus.soat.status === "expiring") {
-    const days = documentStatus.soat.daysUntilExpiration;
-    warnings.push(
-      Number.isFinite(days) ? `SOAT por vencer (${days} días)` : "SOAT por vencer"
-    );
-  }
-  if (documentStatus.license.status === "expired") warnings.push("Licencia vencida");
-  if (documentStatus.license.status === "expiring") {
-    const days = documentStatus.license.daysUntilExpiration;
-    warnings.push(
-      Number.isFinite(days) ? `Licencia por vencer (${days} días)` : "Licencia por vencer"
-    );
-  }
-
-  const documentsOk =
-    documentStatus.soat.status === "valid" && documentStatus.license.status === "valid";
-
-  const statusKey = vehicle?.status || "pending";
-  const statusInfo = statusCopy[statusKey] || {
-    label: "Estado desconocido",
-    description: "",
-    severity: "info"
-  };
-
-  const canRequestReview =
-    documentsOk && ["pending", "needs_update", "rejected"].includes(statusKey);
-
-  return {
-    ...vehicle,
-    meta: {
-      status: statusKey,
-      statusLabel: statusInfo.label,
-      statusDescription: statusInfo.description,
-      statusSeverity: statusInfo.severity,
-      documents: documentStatus,
-      documentsOk,
-      warnings,
-      canRequestReview,
-      canActivate: statusKey === "verified" && documentsOk,
-      requiresDocumentUpdate:
-        statusKey === "rejected" || statusKey === "needs_update" || !documentsOk
-    }
-  };
-}
+const verificationStatuses = Vehicle.verificationStatuses || VERIFICATION_STATUSES;
 
 function normalizePickupPoint(input) {
   const name = typeof input?.name === "string" ? input.name.trim() : "";
