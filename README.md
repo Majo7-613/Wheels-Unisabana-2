@@ -70,12 +70,13 @@ Los componentes de features referencian esas rutas públicas.
    - Waze: curl "http://localhost:4000/navigation/waze?lat=4.65&lng=-74.05"
    - Distance (sin key): curl "http://localhost:4000/maps/distance?origin=4.65,-74.05&destination=4.86,-74.03" → debe dar 500 si no configuraste GOOGLE_MAPS_KEY.
 8) Cuando uses Google/Mongo:
-   - Edita backend/.env y define: MONGO_URI=mongodb://localhost:27017/wheels y GOOGLE_MAPS_KEY=tu_api_key
+  - Edita backend/.env y define: MONGO_URI=mongodb://localhost:27017/wheels (debe empezar por mongodb:// o mongodb+srv://) y GOOGLE_MAPS_KEY=tu_api_key
    - Reinicia solo el backend (cierra la ventana del backend y vuelve a ejecutar run-all.ps1 o cd backend && npm run dev)
 
 ## Diagnóstico rápido
 - “Cannot find @vitejs/plugin-react” → cd frontend && npm i -D @vitejs/plugin-react
 - “MONGO_URI undefined” y reinicios → ya está mitigado; edita backend/.env cuando quieras conectar Mongo.
+- “MONGO_URI formato inválido” → verifica que tu cadena comience con mongodb:// o mongodb+srv://.
 - “connection refused” → espera 5–10s, revisa http://localhost:4000/health y http://localhost:5173; firewall/antivirus puede bloquear Node.
 - Puertos ocupados → netstat -ano | findstr :4000 y :5173, cierra procesos que bloqueen.
 

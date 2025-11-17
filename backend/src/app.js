@@ -39,14 +39,17 @@ mongoose.set("strictQuery", true);
 
 // Conditional DB connection: app boots without Mongo to keep health/docs available.
 // Auth and persistence endpoints will surface 503 until MONGO_URI is configured.
-const mongoUri = process.env.MONGO_URI;
-if (mongoUri) {
+const mongoUri = process.env.MONGO_URI?.trim();
+const isValidMongoUri = typeof mongoUri === "string" && /^mongodb(\+srv)?:\/\//.test(mongoUri);
+
+if (isValidMongoUri) {
   mongoose
     .connect(mongoUri, { dbName: "wheels" })
     .then(() => console.log("MongoDB conectado"))
     .catch((e) => console.error("Error MongoDB", e.message));
 } else {
-  console.warn("MONGO_URI no definido; se omite conexión a MongoDB");
+  const reason = mongoUri ? "formato inválido" : "no definido";
+  console.warn(`MONGO_URI ${reason}; la API seguirá funcionando sin Mongo.`);
 }
 
 // Convenience redirect to API docs when hitting the root; improves DX in dev environments.
