@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../../utils/api";
 import { useAuth } from "../../context/AuthContext.jsx";
+import useVehiclesOverview from "../Vehicles/hooks/useVehiclesOverview.js";
 
 const emptyForm = {
   vehicleId: "",
@@ -16,8 +17,6 @@ const emptyForm = {
 
 export default function TripForm() {
   const { user } = useAuth();
-  const [vehicles, setVehicles] = useState([]);
-  const [loadingVehicles, setLoadingVehicles] = useState(true);
   const [form, setForm] = useState(emptyForm);
   const [pickupPoints, setPickupPoints] = useState([]);
   const [pickupDraft, setPickupDraft] = useState({ name: "", description: "", lat: "", lng: "" });
@@ -31,54 +30,37 @@ export default function TripForm() {
   const [success, setSuccess] = useState("");
 
   const isDriver = useMemo(() => (user?.roles || []).includes("driver"), [user?.roles]);
-  const activeVehicleId = useMemo(() => (user?.activeVehicle ? String(user.activeVehicle) : ""), [user?.activeVehicle]);
+  const {
+    vehicles,
+    activeVehicleId: overviewActiveVehicleId,
+    loading: loadingVehicles,
+    error: vehiclesError,
+    refresh: refreshVehicles
+  } = useVehiclesOverview({ enabled: isDriver });
+
+  const userActiveVehicle = user?.activeVehicle;
+  const activeVehicleId = useMemo(() => {
+    if (overviewActiveVehicleId) return overviewActiveVehicleId;
+    if (!userActiveVehicle) return "";
+    return typeof userActiveVehicle === "string"
+      ? userActiveVehicle
+      : userActiveVehicle?.toString?.() || "";
+  }, [overviewActiveVehicleId, userActiveVehicle]);
 
   const isVehicleDocsValid = (vehicle) => {
     if (!vehicle) return false;
-    if (!vehicle.soatExpiration || !vehicle.licenseExpiration) return false;
+    if (vehicle.meta?.documentsOk !== undefined) {
+      return Boolean(vehicle.meta.documentsOk);
+    }
+    const soatExpiration = vehicle.meta?.documents?.soat?.expiresOn || vehicle.soatExpiration;
+    const licenseExpiration = vehicle.meta?.documents?.license?.expiresOn || vehicle.licenseExpiration;
+    if (!soatExpiration || !licenseExpiration) return false;
     const now = Date.now();
-    const soat = new Date(vehicle.soatExpiration).getTime();
-    const license = new Date(vehicle.licenseExpiration).getTime();
+    const soat = new Date(soatExpiration).getTime();
+    const license = new Date(licenseExpiration).getTime();
     if (Number.isNaN(soat) || Number.isNaN(license)) return false;
     return soat >= now && license >= now;
   };
-
-  useEffect(() => {
-    if (!isDriver) {
-      setVehicles([]);
-      setLoadingVehicles(false);
-      return;
-    }
-
-    let ignore = false;
-
-    async function fetchVehicles() {
-      setLoadingVehicles(true);
-      setError("");
-      try {
-        const { data } = await api.get("/vehicles");
-        if (!ignore) {
-          const list = Array.isArray(data)
-            ? data.map((vehicle) => ({
-                ...vehicle,
-                _id: String(vehicle._id)
-              }))
-            : [];
-          setVehicles(list);
-        }
-      } catch (err) {
-        console.error("trip form vehicles", err);
-        if (!ignore) setError("No pudimos cargar tus vehículos. Intenta nuevamente.");
-      } finally {
-        if (!ignore) setLoadingVehicles(false);
-      }
-    }
-
-    fetchVehicles();
-    return () => {
-      ignore = true;
-    };
-  }, [isDriver]);
 
   useEffect(() => {
     if (!form.vehicleId) {
@@ -396,6 +378,18 @@ export default function TripForm() {
       )}
       {success && (
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div>
+      )}
+      {vehiclesError && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span>{vehiclesError}</span>
+          <button
+            type="button"
+            className="rounded-full border border-amber-300 px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+            onClick={refreshVehicles}
+          >
+            Reintentar
+          </button>
+        </div>
       )}
       {distanceFeedback && (
         <div className="mb-4 max-w-2xl rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">

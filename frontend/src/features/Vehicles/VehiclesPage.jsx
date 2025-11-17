@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import api from "../../utils/api";
 import { useAuth } from "../../context/AuthContext.jsx";
+import useVehiclesOverview from "./hooks/useVehiclesOverview.js";
 
 const ACCEPTED_DOCUMENT_TYPES = ".pdf,.jpeg,.jpg,.png,.webp,.heic,.heif";
 const PLATE_REGEX = /^(?:[A-Z]{3}[0-9]{3}|[A-Z]{3}[0-9]{2}[A-Z])$/;
@@ -46,10 +47,128 @@ function resolveAssetUrl(pathValue) {
   return `${baseTrimmed}${path}`;
 }
 
+const readinessCopy = {
+  ready: {
+    title: "Todo listo para conducir",
+    subtitle: "Puedes publicar viajes inmediatamente",
+    container: "border-emerald-200 bg-emerald-50/70",
+    badge: "bg-emerald-100 text-emerald-700"
+  },
+  pending: {
+    title: "Completa el registro del vehículo",
+    subtitle: "Aún faltan pasos para activar el modo conductor",
+    container: "border-sky-200 bg-sky-50/70",
+    badge: "bg-sky-100 text-sky-700"
+  },
+  under_review: {
+    title: "Estamos revisando tu vehículo",
+    subtitle: "Te notificaremos cuando finalice la verificación",
+    container: "border-sky-200 bg-sky-50/70",
+    badge: "bg-sky-100 text-sky-700"
+  },
+  expired_documents: {
+    title: "Actualiza tus documentos",
+    subtitle: "Renueva SOAT o licencia para seguir conduciendo",
+    container: "border-amber-200 bg-amber-50/70",
+    badge: "bg-amber-100 text-amber-800"
+  },
+  needs_update: {
+    title: "Revisa observaciones",
+    subtitle: "Actualiza la información del vehículo y solicita revisión",
+    container: "border-amber-200 bg-amber-50/70",
+    badge: "bg-amber-100 text-amber-800"
+  },
+  rejected: {
+    title: "Verificación rechazada",
+    subtitle: "Corrige los hallazgos y vuelve a enviar",
+    container: "border-red-200 bg-red-50/70",
+    badge: "bg-red-100 text-red-700"
+  },
+  no_vehicle: {
+    title: "Registra tu primer vehículo",
+    subtitle: "Necesitas al menos uno para cambiar a conductor",
+    container: "border-slate-200 bg-slate-50",
+    badge: "bg-slate-200 text-slate-700"
+  },
+  default: {
+    title: "Estado del modo conductor",
+    subtitle: "Gestiona tus vehículos para conducir",
+    container: "border-slate-200 bg-slate-50",
+    badge: "bg-slate-200 text-slate-700"
+  }
+};
+
+function DriverReadinessPanel({ readiness, onRefresh }) {
+  if (!readiness) return null;
+  const { status, reasons = [], summary = {}, nextSteps = [] } = readiness;
+  const preset = readinessCopy[status] || readinessCopy.default;
+  const statusLabel = (status || "sin_estado").replace(/_/g, " ");
+
+  return (
+    <section className={`mb-6 rounded-[32px] border px-6 py-5 shadow-sm ${preset.container}`}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${preset.badge}`}>
+            {statusLabel}
+          </span>
+          <h2 className="mt-2 text-xl font-semibold text-slate-900">{preset.title}</h2>
+          <p className="text-sm text-slate-600">{preset.subtitle}</p>
+          {reasons.length ? (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-600">
+              {reasons.slice(0, 3).map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+        <div className="grid gap-3 text-center text-sm text-slate-700 sm:grid-cols-2">
+          <div className="rounded-2xl border border-white/70 bg-white/60 px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">Vehículos verificados</p>
+            <p className="mt-1 text-xl font-semibold text-slate-900">{summary.verified || 0}</p>
+          </div>
+          <div className="rounded-2xl border border-white/70 bg-white/60 px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">Documentos por vencer</p>
+            <p className="mt-1 text-xl font-semibold text-slate-900">{summary.expiringDocuments || 0}</p>
+          </div>
+        </div>
+      </div>
+      {nextSteps.length ? (
+        <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
+          {nextSteps.map((step) => (
+            <span
+              key={`${step.action}-${step.label}`}
+              className="rounded-full border border-slate-200 bg-white/70 px-3 py-1"
+            >
+              {step.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {onRefresh ? (
+        <div className="mt-4 text-right">
+          <button
+            type="button"
+            className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+            onClick={onRefresh}
+          >
+            Actualizar estado
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export default function VehiclesPage() {
   const { user, refreshProfile } = useAuth();
-  const [vehicles, setVehicles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    vehicles,
+    readiness,
+    activeVehicleId: overviewActiveVehicleId,
+    loading: loadingVehicles,
+    error: overviewError,
+    refresh: refreshVehicles
+  } = useVehiclesOverview();
   const [mode, setMode] = useState("list");
   const [formMode, setFormMode] = useState("create");
   const [selectedId, setSelectedId] = useState("");
@@ -57,33 +176,22 @@ export default function VehiclesPage() {
   const [formErrors, setFormErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [successBanner, setSuccessBanner] = useState("");
   const [successVehicle, setSuccessVehicle] = useState(null);
   const [activatingId, setActivatingId] = useState("");
 
   const isDriver = useMemo(() => (user?.roles || []).includes("driver"), [user?.roles]);
-  const activeVehicleId = user?.activeVehicle?.toString?.() || user?.activeVehicle || "";
+  const userActiveVehicle = user?.activeVehicle;
+  const activeVehicleId = useMemo(() => {
+    if (overviewActiveVehicleId) return overviewActiveVehicleId;
+    if (!userActiveVehicle) return "";
+    return typeof userActiveVehicle === "string"
+      ? userActiveVehicle
+      : userActiveVehicle?.toString?.() || "";
+  }, [overviewActiveVehicleId, userActiveVehicle]);
 
-  async function fetchVehicles() {
-    setLoading(true);
-    setError("");
-    try {
-      const { data } = await api.get("/vehicles");
-      const list = Array.isArray(data) ? data : [];
-      setVehicles(list);
-    } catch (err) {
-      console.error("vehicles fetch", err);
-      setError("No se pudieron cargar los vehículos");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    fetchVehicles();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const combinedError = actionError || overviewError;
 
   function openCreate() {
     setMode("form");
@@ -92,7 +200,7 @@ export default function VehiclesPage() {
     setForm(initialForm);
     setFormErrors({});
     setTouched({});
-    setError("");
+    setActionError("");
     setSuccessBanner("");
     setSuccessVehicle(null);
   }
@@ -120,7 +228,7 @@ export default function VehiclesPage() {
     });
     setFormErrors({});
     setTouched({});
-    setError("");
+    setActionError("");
     setSuccessBanner("");
     setSuccessVehicle(null);
   }
@@ -133,7 +241,7 @@ export default function VehiclesPage() {
     setFormErrors({});
     setTouched({});
     setSubmitting(false);
-    setError("");
+    setActionError("");
     setSuccessVehicle(null);
     if (message) setSuccessBanner(message);
   }
@@ -203,13 +311,13 @@ export default function VehiclesPage() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    setError("");
+    setActionError("");
     setSuccessBanner("");
     const errors = validateForm();
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) {
       setTouched((prev) => ({ ...prev, submitted: true }));
-      setError("Por favor completa los campos obligatorios");
+      setActionError("Por favor completa los campos obligatorios");
       return;
     }
 
@@ -236,14 +344,14 @@ export default function VehiclesPage() {
         await api.put(`/vehicles/${selectedId}`, payload, {
           headers: { "Content-Type": "multipart/form-data" }
         });
-        await fetchVehicles();
+        await refreshVehicles();
         await refreshProfile();
         resetToList("Vehículo actualizado correctamente");
       } else {
         const { data } = await api.post("/vehicles", payload, {
           headers: { "Content-Type": "multipart/form-data" }
         });
-        await fetchVehicles();
+        await refreshVehicles();
         await refreshProfile();
         setSuccessVehicle(data || null);
         setMode("success");
@@ -252,7 +360,7 @@ export default function VehiclesPage() {
     } catch (err) {
       console.error("vehicle submit", err);
       const message = err?.response?.data?.error || "No se pudo guardar el vehículo";
-      setError(message);
+      setActionError(message);
       setSubmitting(false);
     }
   }
@@ -260,16 +368,16 @@ export default function VehiclesPage() {
   async function handleDelete(vehicleId) {
     if (!window.confirm("¿Eliminar este vehículo? Esta acción no se puede deshacer.")) return;
     setSubmitting(true);
-    setError("");
+    setActionError("");
     setSuccessBanner("");
     try {
       await api.delete(`/vehicles/${vehicleId}`);
-      await fetchVehicles();
+      await refreshVehicles();
       await refreshProfile();
       resetToList("Vehículo eliminado");
     } catch (err) {
       const message = err?.response?.data?.error || "No se pudo eliminar el vehículo";
-      setError(message);
+      setActionError(message);
       setSubmitting(false);
     }
   }
@@ -277,15 +385,16 @@ export default function VehiclesPage() {
   async function handleActivate(vehicleId) {
     if (!vehicleId || vehicleId === activeVehicleId) return;
     setActivatingId(vehicleId);
-    setError("");
+    setActionError("");
     setSuccessBanner("");
     try {
       await api.put(`/vehicles/${vehicleId}/activate`, {});
+      await refreshVehicles();
       await refreshProfile();
       setSuccessBanner("Vehículo activado para futuros viajes");
     } catch (err) {
       const message = err?.response?.data?.error || "No se pudo activar el vehículo";
-      setError(message);
+      setActionError(message);
     } finally {
       setActivatingId("");
     }
@@ -394,20 +503,36 @@ export default function VehiclesPage() {
         )}
       </header>
 
+      <DriverReadinessPanel readiness={readiness} onRefresh={refreshVehicles} />
+
       {!isDriver && vehicles.length === 0 && mode === "list" ? (
         <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
           Para activar el rol de conductor primero registra un vehículo. Una vez aprobado podrás cambiar de pasajero a conductor desde tu perfil.
         </div>
       ) : null}
 
-      {error && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      {combinedError && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{combinedError}</span>
+          {overviewError ? (
+            <button
+              type="button"
+              className="rounded-full border border-red-300 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+              onClick={() => {
+                setActionError("");
+                refreshVehicles();
+              }}
+            >
+              Reintentar
+            </button>
+          ) : null}
+        </div>
       )}
       {successBanner && (
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{successBanner}</div>
       )}
 
-      {loading ? (
+      {loadingVehicles ? (
         <p className="text-sm text-slate-500">Cargando...</p>
       ) : (
         <>

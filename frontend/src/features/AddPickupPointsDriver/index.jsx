@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../../utils/api";
 import { useAuth } from "../../context/AuthContext.jsx";
+import useVehiclesOverview from "../Vehicles/hooks/useVehiclesOverview.js";
 
 const hero = "/Designs/Add Pickup Points (Driver).png";
 const emptyForm = { name: "", description: "", lat: "", lng: "" };
 
 export default function AddPickupPointsDriver() {
   const { user } = useAuth();
-  const [vehicles, setVehicles] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
@@ -18,41 +17,22 @@ export default function AddPickupPointsDriver() {
   const [success, setSuccess] = useState("");
 
   const isDriver = useMemo(() => (user?.roles || []).includes("driver"), [user?.roles]);
-  const activeVehicleId = useMemo(() => (user?.activeVehicle ? String(user.activeVehicle) : ""), [user?.activeVehicle]);
+  const {
+    vehicles,
+    activeVehicleId: overviewActiveVehicleId,
+    loading: loadingVehicles,
+    error: vehiclesError,
+    refresh: refreshVehicles
+  } = useVehiclesOverview({ enabled: isDriver });
 
-  useEffect(() => {
-    if (!isDriver) {
-      setVehicles([]);
-      setLoading(false);
-      return;
-    }
-
-    let ignore = false;
-
-    async function fetchVehicles() {
-      setLoading(true);
-      setError("");
-      try {
-        const { data } = await api.get("/vehicles");
-        if (!ignore) {
-          const list = Array.isArray(data)
-            ? data.map((vehicle) => ({ ...vehicle, _id: String(vehicle._id) }))
-            : [];
-          setVehicles(list);
-        }
-      } catch (err) {
-        console.error("pickup points vehicles", err);
-        if (!ignore) setError("No pudimos cargar tus vehículos. Intenta nuevamente.");
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    }
-
-    fetchVehicles();
-    return () => {
-      ignore = true;
-    };
-  }, [isDriver]);
+  const userActiveVehicle = user?.activeVehicle;
+  const activeVehicleId = useMemo(() => {
+    if (overviewActiveVehicleId) return overviewActiveVehicleId;
+    if (!userActiveVehicle) return "";
+    return typeof userActiveVehicle === "string"
+      ? userActiveVehicle
+      : userActiveVehicle?.toString?.() || "";
+  }, [overviewActiveVehicleId, userActiveVehicle]);
 
   useEffect(() => {
     if (!vehicles.length) {
@@ -81,6 +61,7 @@ export default function AddPickupPointsDriver() {
   }
 
   const hasVehicle = vehicles.length > 0;
+  const bannerError = error || vehiclesError;
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -133,18 +114,6 @@ export default function AddPickupPointsDriver() {
         if (!updatedPoint) {
           throw new Error("Respuesta inválida del servidor");
         }
-        setVehicles((prev) =>
-          prev.map((vehicle) =>
-            vehicle._id === selectedVehicle._id
-              ? {
-                  ...vehicle,
-                  pickupPoints: vehicle.pickupPoints.map((point) =>
-                    point._id === updatedPoint._id ? updatedPoint : point
-                  )
-                }
-              : vehicle
-          )
-        );
         setSuccess("Punto actualizado correctamente");
       } else {
         const { data } = await api.post(`/vehicles/${selectedVehicle._id}/pickup-points`, payload);
@@ -152,18 +121,9 @@ export default function AddPickupPointsDriver() {
         if (!created) {
           throw new Error("Respuesta inválida del servidor");
         }
-        setVehicles((prev) =>
-          prev.map((vehicle) =>
-            vehicle._id === selectedVehicle._id
-              ? {
-                  ...vehicle,
-                  pickupPoints: [...(vehicle.pickupPoints || []), created]
-                }
-              : vehicle
-          )
-        );
         setSuccess("Punto agregado correctamente");
       }
+      await refreshVehicles();
       resetForm();
     } catch (err) {
       const message = err?.response?.data?.error || "No se pudo guardar el punto";
@@ -192,16 +152,7 @@ export default function AddPickupPointsDriver() {
     setDeletingId(pointId);
     try {
       await api.delete(`/vehicles/${selectedVehicle._id}/pickup-points/${pointId}`);
-      setVehicles((prev) =>
-        prev.map((vehicle) =>
-          vehicle._id === selectedVehicle._id
-            ? {
-                ...vehicle,
-                pickupPoints: (vehicle.pickupPoints || []).filter((point) => point._id !== pointId)
-              }
-            : vehicle
-        )
-      );
+      await refreshVehicles();
       if (editingId === pointId) {
         resetForm();
       }
@@ -230,14 +181,28 @@ export default function AddPickupPointsDriver() {
         }}
       />
 
-      {error && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      {bannerError && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{bannerError}</span>
+          {vehiclesError ? (
+            <button
+              type="button"
+              className="rounded-full border border-red-300 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+              onClick={() => {
+                setError("");
+                refreshVehicles();
+              }}
+            >
+              Reintentar
+            </button>
+          ) : null}
+        </div>
       )}
       {success && (
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div>
       )}
 
-      {loading ? (
+      {loadingVehicles ? (
         <p className="text-sm text-slate-500">Cargando vehículos...</p>
       ) : !hasVehicle ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">

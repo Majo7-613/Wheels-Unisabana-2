@@ -244,6 +244,32 @@ router.get("/", requireAuth, async (req, res) => {
   res.json(list.map((vehicle) => decorateVehicle(vehicle)));
 });
 
+router.get("/overview", requireAuth, async (req, res) => {
+  const [user, vehicles] = await Promise.all([
+    User.findById(req.user.sub).lean(),
+    Vehicle.find({ owner: req.user.sub }).lean()
+  ]);
+
+  if (!user) {
+    return res.status(404).json({ error: "Usuario no encontrado" });
+  }
+
+  const activeVehicleId = user.activeVehicle ? String(user.activeVehicle) : null;
+  const decoratedVehicles = vehicles.map((vehicle) => {
+    const decorated = decorateVehicle(vehicle);
+    const isActive = activeVehicleId && vehicle?._id?.toString?.() === activeVehicleId;
+    return { ...decorated, isActive };
+  });
+
+  const readiness = evaluateDriverReadiness(vehicles, { activeVehicle: user.activeVehicle });
+
+  return res.json({
+    vehicles: decoratedVehicles,
+    activeVehicle: user.activeVehicle || null,
+    readiness
+  });
+});
+
 router.post("/validate", requireAuth, (req, res) => {
   const { plate, capacity } = req.body || {};
   const validation = validateBasics({ plate, capacity });

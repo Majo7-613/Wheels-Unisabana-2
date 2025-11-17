@@ -50,6 +50,16 @@ function buildVehiclePayload(overrides = {}) {
   return { ...base, ...overrides };
 }
 
+async function createVehicleViaApi(token, overrides = {}) {
+  const res = await request(app)
+    .post("/vehicles")
+    .set("Authorization", `Bearer ${token}`)
+    .send(buildVehiclePayload(overrides));
+
+  expect(res.status).toBe(201);
+  return res.body;
+}
+
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
   process.env.MONGO_URI = mongoServer.getUri();
@@ -266,5 +276,101 @@ describe("Vehicles management", () => {
 
     const expiringVehicle = readiness.vehicles.find((vehicle) => vehicle.plate === "DOC222");
     expect(expiringVehicle?.meta?.warnings?.some((msg) => /SOAT/gi.test(msg))).toBe(true);
+  });
+
+  it("returns overview data with readiness summary and active flags", async () => {
+    const { token, userId } = await registerAndLogin({ emailSuffix: "overview" });
+    const vehicle = await createVehicleViaApi(token, { plate: "OVR101" });
+
+    await Vehicle.findByIdAndUpdate(vehicle._id, {
+      owner: userId,
+      status: "verified",
+      statusUpdatedAt: new Date()
+    });
+
+    const overviewRes = await request(app)
+      .get("/vehicles/overview")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(Array.isArray(overviewRes.body.vehicles)).toBe(true);
+    expect(overviewRes.body.vehicles.length).toBe(1);
+    expect(overviewRes.body.vehicles[0].isActive).toBe(true);
+    expect(overviewRes.body.readiness?.eligible).toBe(true);
+    expect(String(overviewRes.body.activeVehicle)).toBe(String(vehicle._id));
+  });
+
+  it("prevents activation when vehicle is unverified or documents expired", async () => {
+    const { token } = await registerAndLogin({ emailSuffix: "activateguard" });
+    const vehicle = await createVehicleViaApi(token, { plate: "GUA101" });
+
+    const activatePending = await request(app)
+      .put(`/vehicles/${vehicle._id}/activate`)
+      .set("Authorization", `Bearer ${token}`)
+      .send();
+
+    expect(activatePending.status).toBe(400);
+    expect(activatePending.body.error).toMatch(/verificaci[óo]n/i);
+
+    await Vehicle.findByIdAndUpdate(vehicle._id, {
+      status: "verified",
+      statusUpdatedAt: new Date(),
+      soatExpiration: new Date(Date.now() - 1000 * 60 * 60 * 24)
+    });
+
+    const activateExpired = await request(app)
+      .put(`/vehicles/${vehicle._id}/activate`)
+      .set("Authorization", `Bearer ${token}`)
+      .send();
+
+    expect(activateExpired.status).toBe(400);
+    expect(activateExpired.body.error).toMatch(/documentos/i);
+  });
+
+  it("reassigns active vehicle when the current active one is deleted", async () => {
+    const { token, userId } = await registerAndLogin({ emailSuffix: "deletehandoff" });
+    const firstVehicle = await createVehicleViaApi(token, { plate: "HND101" });
+    const secondVehicle = await createVehicleViaApi(token, { plate: "HND202" });
+
+    await Vehicle.updateMany(
+      { owner: userId },
+      { status: "verified", statusUpdatedAt: new Date() }
+    );
+
+    await request(app)
+      .put(`/vehicles/${secondVehicle._id}/activate`)
+      .set("Authorization", `Bearer ${token}`)
+      .send()
+      .expect(200);
+
+    const deleteRes = await request(app)
+      .delete(`/vehicles/${secondVehicle._id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send();
+
+    expect(deleteRes.status).toBe(200);
+    const userAfter = await User.findById(userId).lean();
+    expect(String(userAfter.activeVehicle)).toBe(String(firstVehicle._id));
+    expect(userAfter.roles).toContain("driver");
+  });
+
+  it("marks a vehicle as pending review when key fields change via update", async () => {
+    const { token } = await registerAndLogin({ emailSuffix: "editreview" });
+    const vehicle = await createVehicleViaApi(token, { plate: "EDI101" });
+
+    await Vehicle.findByIdAndUpdate(vehicle._id, {
+      status: "verified",
+      statusUpdatedAt: new Date(),
+      requestedReviewAt: new Date()
+    });
+
+    const updateRes = await request(app)
+      .put(`/vehicles/${vehicle._id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ brand: "Mazda" })
+      .expect(200);
+
+    expect(updateRes.body.status).toBe("pending");
+    expect(updateRes.body.meta.status).toBe("pending");
   });
 });
