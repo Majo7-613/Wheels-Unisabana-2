@@ -10,6 +10,50 @@ const initialFilters = {
   seats: ""
 };
 
+const currencyFormatter = new Intl.NumberFormat("es-CO", {
+  style: "currency",
+  currency: "COP",
+  maximumFractionDigits: 0
+});
+
+function formatDriverName(driver) {
+  if (!driver) return "Conductor";
+  if (typeof driver === "string") return driver;
+  const first = driver.firstName || driver.name || "";
+  const last = driver.lastName || "";
+  const candidate = `${first} ${last}`.trim();
+  if (candidate) return candidate;
+  if (driver.email) return driver.email.split("@")[0];
+  return "Conductor";
+}
+
+function extractInitials(name = "") {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("");
+}
+
+function formatVehicleLabel(vehicle) {
+  if (!vehicle) return "Vehículo registrado";
+  const brandModel = `${vehicle.brand || ""} ${vehicle.model || ""}`.trim();
+  return brandModel || "Vehículo registrado";
+}
+
+function formatDeparture(dateValue) {
+  const departure = new Date(dateValue);
+  if (Number.isNaN(departure.getTime())) return dateValue;
+  return departure.toLocaleString("es-CO", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 export default function TripList() {
   const { user } = useAuth();
   const [trips, setTrips] = useState([]);
@@ -22,6 +66,17 @@ export default function TripList() {
   const [reservationSending, setReservationSending] = useState(false);
   const [customPickupEnabled, setCustomPickupEnabled] = useState(false);
   const [customPickup, setCustomPickup] = useState({ name: "", description: "", lat: "", lng: "" });
+  const [reservationFieldErrors, setReservationFieldErrors] = useState({});
+  const [reservationSuccess, setReservationSuccess] = useState(null);
+
+  const clearFieldError = (field) => {
+    setReservationFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
 
   useEffect(() => {
     let ignore = false;
@@ -67,19 +122,20 @@ export default function TripList() {
     setReservationSending(false);
     setCustomPickupEnabled(false);
     setCustomPickup({ name: "", description: "", lat: "", lng: "" });
+    setReservationFieldErrors({});
   }
 
   async function handleReservationSubmit(event) {
     event.preventDefault();
     if (!reservationTrip) return;
+    setReservationFieldErrors({});
+    setReservationError("");
     const seats = Number(reservationForm.seats);
+    const fieldErrors = {};
     if (!Number.isInteger(seats) || seats < 1) {
-      setReservationError("Selecciona una cantidad válida de puestos");
-      return;
-    }
-    if (seats > reservationTrip.seatsAvailable) {
-      setReservationError("No hay suficientes cupos disponibles");
-      return;
+      fieldErrors.seats = "Selecciona una cantidad válida de puestos";
+    } else if (seats > reservationTrip.seatsAvailable) {
+      fieldErrors.seats = "No hay suficientes cupos disponibles";
     }
     let pickup;
     if (customPickupEnabled) {
@@ -88,28 +144,33 @@ export default function TripList() {
       const lat = Number(customPickup.lat);
       const lng = Number(customPickup.lng);
       if (!name) {
-        setReservationError("Describe el nuevo punto de recogida");
-        return;
+        fieldErrors.customPickupName = "Describe el nuevo punto de recogida";
       }
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        setReservationError("Selecciona coordenadas válidas en el mapa o ingrésalas manualmente");
-        return;
+        fieldErrors.customPickupLat = "Selecciona coordenadas válidas o haz clic en el mapa";
+        fieldErrors.customPickupLng = "Selecciona coordenadas válidas o haz clic en el mapa";
+      } else if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        fieldErrors.customPickupLat = "Las coordenadas están fuera del rango permitido";
+        fieldErrors.customPickupLng = "Las coordenadas están fuera del rango permitido";
       }
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        setReservationError("Las coordenadas están fuera del rango permitido");
+      if (Object.keys(fieldErrors).length) {
+        setReservationFieldErrors(fieldErrors);
         return;
       }
       pickup = { name, description: description || undefined, lat, lng };
     } else {
       pickup = availablePickupPoints[reservationForm.pickupPointIndex];
       if (!pickup) {
-        setReservationError("Selecciona un punto de recogida");
-        return;
+        fieldErrors.pickupPointIndex = "Selecciona un punto de recogida";
       }
     }
 
+    if (Object.keys(fieldErrors).length) {
+      setReservationFieldErrors(fieldErrors);
+      return;
+    }
+
     setReservationSending(true);
-    setReservationError("");
     try {
       const payload = {
         seats,
@@ -138,6 +199,15 @@ export default function TripList() {
       if (nextTrip) {
         setTrips((prev) => prev.map((trip) => (trip._id === nextTrip._id ? nextTrip : trip)));
       }
+      setReservationSuccess({
+        id: nextTrip?._id || reservationTrip._id,
+        driverName: reservationDriverName,
+        seats,
+        origin: reservationTrip.origin,
+        destination: reservationTrip.destination,
+        departureAt: reservationTrip.departureAt,
+        pickupName: pickup.name
+      });
       resetReservationState();
     } catch (err) {
       const message = err?.response?.data?.error || "No se pudo reservar el viaje";
@@ -170,12 +240,65 @@ export default function TripList() {
     }
   }, [availablePickupPoints.length, reservationForm.pickupPointIndex, reservationTrip]);
 
+  useEffect(() => {
+    if (!reservationSuccess) return undefined;
+    const timeoutId = setTimeout(() => setReservationSuccess(null), 6000);
+    return () => clearTimeout(timeoutId);
+  }, [reservationSuccess]);
+
+  const reservationDriverName = formatDriverName(reservationTrip?.driver);
+  const reservationDriverInitials = extractInitials(reservationDriverName) || "WD";
+  const reservationVehicleLabel = formatVehicleLabel(reservationTrip?.vehicle);
+  const reservationPlateLabel = reservationTrip?.vehicle?.plate ? ` · Placa ${reservationTrip.vehicle.plate}` : "";
+  const reservationDriverRating = reservationTrip?.driverStats?.average
+    ? `${reservationTrip.driverStats.average.toFixed(1)} ⭐ (${reservationTrip.driverStats.ratingsCount} reseñas)`
+    : "Sin calificaciones aún";
+  const reservationPriceLabel = currencyFormatter.format(reservationTrip?.pricePerSeat || 0);
+  const reservationDateLabel = reservationTrip ? formatDeparture(reservationTrip.departureAt) : "";
+  const reservationSeatCount = Number(reservationForm.seats) || 0;
+  const normalizedSeatCount = reservationSeatCount > 0 ? reservationSeatCount : 0;
+  const reservationSeatLabel =
+    normalizedSeatCount === 0 ? "Sin cupos" : normalizedSeatCount === 1 ? "1 cupo" : `${normalizedSeatCount} cupos`;
+  const reservationSubtotal = (reservationTrip?.pricePerSeat || 0) * normalizedSeatCount;
+  const reservationTotalLabel = currencyFormatter.format(reservationSubtotal || 0);
+  const successDepartureLabel = reservationSuccess ? formatDeparture(reservationSuccess.departureAt) : "";
+  const successSeatLabel =
+    reservationSuccess && reservationSuccess.seats
+      ? reservationSuccess.seats === 1
+        ? "1 cupo reservado"
+        : `${reservationSuccess.seats} cupos reservados`
+      : "";
+
   return (
     <section className="py-6">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold text-slate-900">Viajes disponibles</h1>
         <p className="text-sm text-slate-600">Filtra y reserva un cupo en las rutas activas de la comunidad.</p>
       </header>
+
+      {reservationSuccess && (
+        <div className="mb-4 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-white text-base font-semibold text-emerald-600">
+            ✓
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold">Reserva enviada a {reservationSuccess.driverName}</p>
+            <p className="text-emerald-800">
+              {successSeatLabel}
+              {successSeatLabel ? " · " : ""}
+              {reservationSuccess.origin} → {reservationSuccess.destination} | {successDepartureLabel}
+            </p>
+            <p className="text-xs text-emerald-700">Te notificaremos cuando el conductor confirme tu cupo.</p>
+          </div>
+          <button
+            type="button"
+            className="rounded-full border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+            onClick={() => setReservationSuccess(null)}
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
 
       <form className="mb-6 grid gap-4 rounded-xl border border-white/60 bg-white/80 p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-sm text-slate-600">
@@ -226,17 +349,11 @@ export default function TripList() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {filteredTrips.map((trip) => {
-            const departure = new Date(trip.departureAt);
-            const displayDate = Number.isNaN(departure.getTime())
-              ? trip.departureAt
-              : departure.toLocaleString("es-CO", {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit"
-                });
-            const isOwner = user?.id && trip.driver?.toString() === user.id;
+            const displayDate = formatDeparture(trip.departureAt);
+            const driverId =
+              trip.driver?._id?.toString?.() ||
+              (typeof trip.driver === "string" ? trip.driver : "");
+            const isOwner = user?.id && driverId === user.id;
             const myReservation = user
               ? (trip.reservations || []).find((reservation) =>
                   (reservation.passenger || "").toString() === user.id &&
@@ -244,41 +361,74 @@ export default function TripList() {
                 )
               : null;
             const myReservationStatus = myReservation?.status;
+            const driverName = formatDriverName(trip.driver);
+            const driverInitials = extractInitials(driverName);
+            const vehicleLabel = formatVehicleLabel(trip.vehicle);
+            const plateLabel = trip.vehicle?.plate ? ` · Placa ${trip.vehicle.plate}` : "";
+            const driverRating = trip.driverStats?.average
+              ? `${trip.driverStats.average.toFixed(1)} ⭐ (${trip.driverStats.ratingsCount} reseñas)`
+              : "Sin calificaciones aún";
+            const seatsPillLabel = `${trip.seatsAvailable} de ${trip.seatsTotal ?? trip.seatsAvailable} cupos disponibles`;
             return (
-              <article key={trip._id} className="rounded-xl border border-white/60 bg-white/80 p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-slate-500">{displayDate}</p>
-                    <h2 className="text-lg font-semibold text-slate-900">
-                      {trip.origin} → {trip.destination}
-                    </h2>
-                    {trip.routeDescription && (
-                      <p className="text-sm text-slate-500">{trip.routeDescription}</p>
-                    )}
+              <article key={trip._id} className="rounded-2xl border border-white/70 bg-white/90 p-5 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-700">
+                      {driverInitials}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{driverName}</p>
+                      <p className="text-xs text-slate-500">
+                        {vehicleLabel}
+                        {plateLabel}
+                      </p>
+                      <p className="text-xs font-medium text-amber-600">{driverRating}</p>
+                    </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-slate-500">Precio por puesto</p>
-                    <p className="text-xl font-semibold text-slate-900">
-                      ${trip.pricePerSeat?.toLocaleString("es-CO")}
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Precio por asiento</p>
+                    <p className="text-2xl font-semibold text-slate-900">
+                      {currencyFormatter.format(trip.pricePerSeat || 0)}
                     </p>
-                    <p className="text-xs text-slate-500">Cupos disponibles: {trip.seatsAvailable}</p>
+                    <span className="mt-1 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                      {seatsPillLabel}
+                    </span>
                   </div>
                 </div>
 
-                <div className="mt-4 grid gap-2 text-sm text-slate-600">
-                  {trip.distanceKm && (
-                    <p>
-                      Distancia estimada: <span className="font-medium">{trip.distanceKm} km</span>
-                    </p>
-                  )}
-                  {trip.durationMinutes && (
-                    <p>
-                      Duración estimada: <span className="font-medium">{trip.durationMinutes} minutos</span>
-                    </p>
-                  )}
-                  <p>
-                    Estado: <span className="font-medium">{trip.status === "full" ? "Lleno" : trip.status}</span>
-                  </p>
+                <div className="mt-5 grid gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-4 text-sm text-slate-700">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-1 h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Recogida</p>
+                      <p className="font-medium text-slate-900">{trip.origin}</p>
+                      <p className="text-xs text-slate-500">{displayDate}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="mt-1 h-2 w-2 rounded-full bg-rose-500" aria-hidden="true" />
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Destino</p>
+                      <p className="font-medium text-slate-900">{trip.destination}</p>
+                      {trip.routeDescription && (
+                        <p className="text-xs text-slate-500">{trip.routeDescription}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {trip.distanceKm && (
+                      <p className="rounded-lg bg-white px-3 py-2 text-center text-xs text-slate-500">
+                        Distancia estimada:
+                        <span className="ml-1 font-semibold text-slate-900">{trip.distanceKm} km</span>
+                      </p>
+                    )}
+                    {trip.durationMinutes && (
+                      <p className="rounded-lg bg-white px-3 py-2 text-center text-xs text-slate-500">
+                        Duración estimada:
+                        <span className="ml-1 font-semibold text-slate-900">{trip.durationMinutes} min</span>
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {trip.pickupPoints?.length > 0 && (
@@ -300,7 +450,7 @@ export default function TripList() {
                   </div>
                 )}
 
-                <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+                <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
                   {isOwner ? (
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
                       Este viaje es tuyo
@@ -322,6 +472,7 @@ export default function TripList() {
                           paymentMethod: "cash"
                         });
                         setReservationError("");
+                        setReservationFieldErrors({});
                         const hasPickupPoints = Array.isArray(trip.pickupPoints) && trip.pickupPoints.length > 0;
                         setCustomPickupEnabled(!hasPickupPoints);
                         setCustomPickup({ name: "", description: "", lat: "", lng: "" });
@@ -340,12 +491,45 @@ export default function TripList() {
       {reservationTrip && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/50 p-4">
           <div className="w-full max-w-md rounded-xl border border-white/60 bg-white p-6 shadow-lg">
-            <header className="mb-4">
-              <h2 className="text-lg font-semibold text-slate-900">Reservar viaje</h2>
-              <p className="text-sm text-slate-600">
-                {reservationTrip.origin} → {reservationTrip.destination} | {new Date(reservationTrip.departureAt).toLocaleString("es-CO")}
-              </p>
+            <header className="mb-5 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-700">
+                    {reservationDriverInitials}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{reservationDriverName}</p>
+                    <p className="text-xs text-slate-500">
+                      {reservationVehicleLabel}
+                      {reservationPlateLabel}
+                    </p>
+                    <p className="text-xs font-medium text-amber-600">{reservationDriverRating}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Precio por asiento</p>
+                  <p className="text-xl font-semibold text-slate-900">{reservationPriceLabel}</p>
+                  <p className="text-xs text-slate-500">{reservationDateLabel}</p>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 text-xs text-slate-600">
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+                  <div>
+                    <p className="uppercase tracking-wide text-slate-500">Recogida</p>
+                    <p className="text-sm font-medium text-slate-900">{reservationTrip.origin}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 h-2 w-2 rounded-full bg-rose-500" aria-hidden="true" />
+                  <div>
+                    <p className="uppercase tracking-wide text-slate-500">Destino</p>
+                    <p className="text-sm font-medium text-slate-900">{reservationTrip.destination}</p>
+                  </div>
+                </div>
+              </div>
             </header>
+
             {!availablePickupPoints.length && (
               <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                 El conductor aún no ha definido puntos de recogida para este viaje. Selecciona uno en el mapa para sugerirlo al confirmar tu reserva.
@@ -365,6 +549,11 @@ export default function TripList() {
                       setCustomPickupEnabled(enabled || forceEnabled);
                       if (!enabled && !forceEnabled) {
                         setCustomPickup({ name: "", description: "", lat: "", lng: "" });
+                        clearFieldError("customPickupName");
+                        clearFieldError("customPickupLat");
+                        clearFieldError("customPickupLng");
+                      } else {
+                        clearFieldError("pickupPointIndex");
                       }
                       setReservationError("");
                     }}
@@ -387,15 +576,24 @@ export default function TripList() {
                   setCustomPickupEnabled(false);
                   setCustomPickup({ name: "", description: "", lat: "", lng: "" });
                   setReservationForm((prev) => ({ ...prev, pickupPointIndex: index }));
+                  clearFieldError("customPickupName");
+                  clearFieldError("customPickupLat");
+                  clearFieldError("customPickupLng");
+                  clearFieldError("pickupPointIndex");
+                  setReservationError("");
                 }}
                 onSelectPoint={
                   customPickupEnabled
-                    ? ({ lat, lng }) =>
+                    ? ({ lat, lng }) => {
                         setCustomPickup((prev) => ({
                           ...prev,
                           lat: lat.toFixed(5),
                           lng: lng.toFixed(5)
-                        }))
+                        }));
+                        clearFieldError("customPickupLat");
+                        clearFieldError("customPickupLng");
+                        setReservationError("");
+                      }
                     : undefined
                 }
                 interactive={customPickupEnabled}
@@ -414,11 +612,22 @@ export default function TripList() {
                   Nombre del punto *
                   <input
                     type="text"
-                    className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                    className={`mt-1 w-full rounded-md border px-3 py-2 text-sm ${
+                      reservationFieldErrors.customPickupName ? "border-red-300 focus:border-red-400 focus:outline-none" : "border-slate-200"
+                    }`}
                     value={customPickup.name}
-                    onChange={(event) => setCustomPickup((prev) => ({ ...prev, name: event.target.value }))}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setCustomPickup((prev) => ({ ...prev, name: nextValue }));
+                      clearFieldError("customPickupName");
+                      setReservationError("");
+                    }}
                     placeholder="Portal Norte"
+                    aria-invalid={Boolean(reservationFieldErrors.customPickupName)}
                   />
+                  {reservationFieldErrors.customPickupName && (
+                    <p className="mt-1 text-[0.7rem] text-red-600">{reservationFieldErrors.customPickupName}</p>
+                  )}
                 </label>
                 <label className="block text-xs uppercase tracking-wide text-slate-500">
                   Referencia o descripción
@@ -426,7 +635,10 @@ export default function TripList() {
                     type="text"
                     className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
                     value={customPickup.description}
-                    onChange={(event) => setCustomPickup((prev) => ({ ...prev, description: event.target.value }))}
+                    onChange={(event) => {
+                      setCustomPickup((prev) => ({ ...prev, description: event.target.value }));
+                      setReservationError("");
+                    }}
                     placeholder="Frente a la entrada principal"
                   />
                 </label>
@@ -436,22 +648,44 @@ export default function TripList() {
                     <input
                       type="number"
                       step="any"
-                      className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                      className={`mt-1 w-full rounded-md border px-3 py-2 text-sm ${
+                        reservationFieldErrors.customPickupLat ? "border-red-300 focus:border-red-400 focus:outline-none" : "border-slate-200"
+                      }`}
                       value={customPickup.lat}
-                      onChange={(event) => setCustomPickup((prev) => ({ ...prev, lat: event.target.value }))}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setCustomPickup((prev) => ({ ...prev, lat: nextValue }));
+                        clearFieldError("customPickupLat");
+                        setReservationError("");
+                      }}
                       placeholder="4.76123"
+                      aria-invalid={Boolean(reservationFieldErrors.customPickupLat)}
                     />
+                    {reservationFieldErrors.customPickupLat && (
+                      <p className="mt-1 text-[0.7rem] text-red-600">{reservationFieldErrors.customPickupLat}</p>
+                    )}
                   </label>
                   <label className="block text-xs uppercase tracking-wide text-slate-500">
                     Longitud *
                     <input
                       type="number"
                       step="any"
-                      className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                      className={`mt-1 w-full rounded-md border px-3 py-2 text-sm ${
+                        reservationFieldErrors.customPickupLng ? "border-red-300 focus:border-red-400 focus:outline-none" : "border-slate-200"
+                      }`}
                       value={customPickup.lng}
-                      onChange={(event) => setCustomPickup((prev) => ({ ...prev, lng: event.target.value }))}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setCustomPickup((prev) => ({ ...prev, lng: nextValue }));
+                        clearFieldError("customPickupLng");
+                        setReservationError("");
+                      }}
                       placeholder="-74.04561"
+                      aria-invalid={Boolean(reservationFieldErrors.customPickupLng)}
                     />
+                    {reservationFieldErrors.customPickupLng && (
+                      <p className="mt-1 text-[0.7rem] text-red-600">{reservationFieldErrors.customPickupLng}</p>
+                    )}
                   </label>
                 </div>
               </div>
@@ -465,11 +699,20 @@ export default function TripList() {
                   min={1}
                   max={reservationTrip.seatsAvailable}
                   value={reservationForm.seats}
-                  onChange={(event) =>
-                    setReservationForm((prev) => ({ ...prev, seats: event.target.value }))
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setReservationForm((prev) => ({ ...prev, seats: nextValue }));
+                    clearFieldError("seats");
+                    setReservationError("");
+                  }}
+                  className={`mt-1 w-full rounded-md border px-3 py-2 text-sm ${
+                    reservationFieldErrors.seats ? "border-red-300 focus:border-red-400 focus:outline-none" : "border-slate-200"
+                  }`}
+                  aria-invalid={Boolean(reservationFieldErrors.seats)}
                 />
+                {reservationFieldErrors.seats && (
+                  <p className="mt-1 text-xs text-red-600">{reservationFieldErrors.seats}</p>
+                )}
               </label>
 
               {availablePickupPoints.length ? (
@@ -477,14 +720,19 @@ export default function TripList() {
                   Punto de recogida del conductor
                   <select
                     value={reservationForm.pickupPointIndex}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setReservationForm((prev) => ({
                         ...prev,
                         pickupPointIndex: Number(event.target.value) || 0
-                      }))
-                    }
-                    className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                      }));
+                      clearFieldError("pickupPointIndex");
+                      setReservationError("");
+                    }}
+                    className={`mt-1 w-full rounded-md border px-3 py-2 text-sm ${
+                      reservationFieldErrors.pickupPointIndex ? "border-red-300 focus:border-red-400 focus:outline-none" : "border-slate-200"
+                    }`}
                     disabled={customPickupEnabled}
+                    aria-invalid={Boolean(reservationFieldErrors.pickupPointIndex)}
                   >
                     {availablePickupPoints.map((pick, index) => (
                       <option key={`${reservationTrip._id}-pickup-option-${index}`} value={index}>
@@ -495,6 +743,9 @@ export default function TripList() {
                   {customPickupEnabled && (
                     <p className="mt-1 text-xs text-slate-500">Desactiva la sugerencia para volver a elegir un punto existente.</p>
                   )}
+                  {reservationFieldErrors.pickupPointIndex && (
+                    <p className="mt-1 text-xs text-red-600">{reservationFieldErrors.pickupPointIndex}</p>
+                  )}
                 </label>
               ) : null}
 
@@ -502,15 +753,34 @@ export default function TripList() {
                 Método de pago
                 <select
                   value={reservationForm.paymentMethod}
-                  onChange={(event) =>
-                    setReservationForm((prev) => ({ ...prev, paymentMethod: event.target.value }))
-                  }
+                  onChange={(event) => {
+                    setReservationForm((prev) => ({ ...prev, paymentMethod: event.target.value }));
+                    setReservationError("");
+                  }}
                   className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
                 >
                   <option value="cash">Efectivo</option>
                   <option value="nequi">Nequi</option>
                 </select>
               </label>
+
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 text-sm text-slate-700">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wide text-slate-500">Precio unitario</span>
+                  <span className="font-semibold text-slate-900">{reservationPriceLabel}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wide text-slate-500">Cupos</span>
+                  <span className="font-medium text-slate-900">{reservationSeatLabel}</span>
+                </div>
+                <div className="mt-3 flex items-center justify-between rounded-lg bg-white px-3 py-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Total a pagar</p>
+                    <p className="text-[0.7rem] text-slate-500">Se confirma con el conductor</p>
+                  </div>
+                  <span className="text-lg font-semibold text-emerald-700">{reservationTotalLabel}</span>
+                </div>
+              </div>
 
               {reservationError && (
                 <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

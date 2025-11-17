@@ -1,9 +1,11 @@
 // Trip endpoints for creation, discovery, and seat booking with atomic updates.
+import mongoose from "mongoose";
 import { Router } from "express";
 import { requireAuth } from "../middlewares/auth.js";
 import Trip from "../models/Trip.js";
 import Vehicle from "../models/Vehicle.js";
 import User from "../models/User.js";
+import Rating from "../models/Rating.js";
 import { suggestTariff, validateTariffInputs } from "../services/tariffService.js";
 
 const router = Router();
@@ -166,8 +168,54 @@ router.get("/", async (req, res) => {
     if (!Number.isNaN(price)) criteria.pricePerSeat = { $lte: price };
   }
 
-  const list = await Trip.find(criteria).select("-pickupSuggestions").sort({ departureAt: 1 }).lean();
-  res.json({ trips: list });
+  const list = await Trip.find(criteria)
+    .select("-pickupSuggestions")
+    .populate("driver", "firstName lastName photoUrl roles")
+    .populate("vehicle", "brand model plate color")
+    .sort({ departureAt: 1 })
+    .lean();
+
+  const driverIds = Array.from(
+    new Set(
+      list
+        .map((trip) => trip.driver?._id?.toString())
+        .filter((id) => Boolean(id))
+    )
+  );
+
+  let ratingMap = new Map();
+  if (driverIds.length) {
+    const driverObjectIds = driverIds.map((id) => new mongoose.Types.ObjectId(id));
+    const ratingStats = await Rating.aggregate([
+      { $match: { to: { $in: driverObjectIds } } },
+      {
+        $group: {
+          _id: "$to",
+          average: { $avg: "$score" },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    ratingMap = new Map(
+      ratingStats.map((stat) => [stat._id.toString(), { average: stat.average, count: stat.count }])
+    );
+  }
+
+  const enrichedTrips = list.map((trip) => {
+    const driverId = trip.driver?._id?.toString();
+    const stats = driverId ? ratingMap.get(driverId) : null;
+    return {
+      ...trip,
+      driverStats: stats
+        ? {
+            average: Number(stats.average?.toFixed(2)) || null,
+            ratingsCount: stats.count
+          }
+        : null
+    };
+  });
+
+  res.json({ trips: enrichedTrips });
 });
 
 router.post("/tariff/suggest", (req, res) => {
