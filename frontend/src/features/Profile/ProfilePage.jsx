@@ -124,8 +124,8 @@ export default function ProfilePage() {
     }
   }
 
-  const passengerActive = user?.activeRole === "pasajero";
-  const driverActive = user?.activeRole === "conductor";
+  const driverActive = ["conductor", "driver"].includes(user?.activeRole);
+  const passengerActive = ["pasajero", "passenger"].includes(user?.activeRole) || !driverActive;
   const hasDriverRole = rolesKey.includes("driver");
   const verifiedVehicles = useMemo(() => vehicles, [vehicles]);
 
@@ -156,7 +156,7 @@ export default function ProfilePage() {
     const name = [driverActiveVehicle?.brand, driverActiveVehicle?.model].filter(Boolean).join(" ");
     if (name) parts.push(name);
     driverHelperMessage = parts.length
-      ? Modo conductor activo · ${parts.join(" · ")}
+      ? `Modo conductor activo · ${parts.join(" · ")}`
       : "Modo conductor activo. Ya puedes publicar viajes.";
   } else {
     driverHelperMessage = "Activa el modo conductor cuando quieras y comienza a ofrecer viajes con tus vehículos registrados.";
