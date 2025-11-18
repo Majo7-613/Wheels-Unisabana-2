@@ -16,7 +16,7 @@ function useTransmilenioStops() {
     setError("");
     api.get("/maps/transmilenio/stops")
       .then(({ data }) => {
-        if (!ignore) setStops(Array.isArray(data?.stops) ? data.stops : []);
+        if (!ignore) setStops([...(Array.isArray(data?.stops) ? data.stops : []), { id: 'unisabana', name: 'Universidad de La Sabana', lat: 4.861, lng: -74.032 }]);
       })
       .catch(() => {
         if (!ignore) setError("No se pudieron cargar las paradas oficiales");

@@ -5,8 +5,8 @@ import { useTheme } from "../context/ThemeContext.jsx";
 const baseNav = [
   { to: "/trips", label: "Viajes" },
   { to: "/reservations", label: "Reservas" },
-  { to: "/vehicles", label: "Vehículos", requiresRole: "driver" },
-  { to: "/trips/new", label: "Crear viaje", requiresRole: "driver" },
+  { to: "/vehicles", label: "Vehículos", requiresRole: "conductor" },
+  { to: "/trips/new", label: "Crear viaje", requiresRole: "conductor" },
   { to: "/profile", label: "Perfil" }
 ];
 
