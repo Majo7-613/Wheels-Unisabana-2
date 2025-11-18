@@ -3,14 +3,11 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 
 const baseNav = [
-  { to: "/dashboard", label: "Dashboard" },
   { to: "/trips", label: "Viajes" },
   { to: "/reservations", label: "Reservas" },
   { to: "/vehicles", label: "Vehículos", requiresRole: "driver" },
   { to: "/trips/new", label: "Crear viaje", requiresRole: "driver" },
-  { to: "/profile", label: "Perfil" },
-  { to: "/features/add-pickup-points", label: "Puntos", requiresRole: "driver" },
-  { to: "/features/calculate-distance", label: "Distancias" }
+  { to: "/profile", label: "Perfil" }
 ];
 
 export default function NavBar() {
@@ -25,7 +22,7 @@ export default function NavBar() {
       style={{ boxShadow: `0 18px 40px ${palette.glow}` }}
     >
       <div className="flex flex-wrap items-center gap-4">
-        <Link to={isAuthenticated ? "/dashboard" : "/"} className="text-white/80 hover:text-white">
+        <Link to={isAuthenticated ? "/trips" : "/"} className="text-white/80 hover:text-white">
           Wheels Hub
         </Link>
         {isAuthenticated && (

@@ -184,6 +184,12 @@ export default function TransmilenioMap({
       }
     })();
   }, [originStopId, destinationStopId, stops, onDrawPolyline]);
+            // Auto-apply suggestion: draw route immediately
+            if (typeof onDrawPolyline === "function") {
+              try {
+                onDrawPolyline(decoded);
+              } catch (e) {}
+            }
 
   // Render TransMilenio routes.
   useEffect(() => {

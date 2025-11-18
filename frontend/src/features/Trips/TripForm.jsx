@@ -47,7 +47,6 @@ export default function TripForm({ testRoutePolyline }) {
   const [pickupPoints, setPickupPoints] = useState([]);
   const [pickupDraft, setPickupDraft] = useState({ name: "", description: "", lat: "", lng: "" });
   const [submitting, setSubmitting] = useState(false);
-  const [calculatingDistance, setCalculatingDistance] = useState(false);
   const [tariffSuggestion, setTariffSuggestion] = useState(null);
   const [suggestingTariff, setSuggestingTariff] = useState(false);
   const [suggestedRouteData, setSuggestedRouteData] = useState(null);
@@ -326,54 +325,7 @@ export default function TripForm({ testRoutePolyline }) {
     return { lat, lng };
   }
 
-  async function handleDistanceFetch() {
-    setError("");
-    setSuccess("");
-    setDistanceFeedback("");
-    setTariffSuggestion(null);
-    setTariffFeedback("");
-
-    if (!form.origin.trim() || !form.destination.trim()) {
-      setError("Ingresa origen y destino antes de calcular la distancia");
-      return;
-    }
-
-    let parsedOrigin;
-    let parsedDestination;
-
-    try {
-      parsedOrigin = toDistancePoint(form.origin, "origen");
-      parsedDestination = toDistancePoint(form.destination, "destino");
-    } catch (coordinateError) {
-      setCalculatingDistance(false);
-      setError(coordinateError.message);
-      return;
-    }
-
-    const payload = {
-      origin: parsedOrigin,
-      destination: parsedDestination,
-      mode: "driving"
-    };
-
-    setCalculatingDistance(true);
-    try {
-      const { data } = await api.post("/maps/calculate", payload);
-      setForm((prev) => ({
-        ...prev,
-        distanceKm: data?.distanceKm != null ? String(data.distanceKm) : prev.distanceKm,
-        durationMinutes: data?.durationMinutes != null ? String(data.durationMinutes) : prev.durationMinutes
-      }));
-      setDistanceFeedback("Distancia estimada actualizada desde OpenRouteService");
-    } catch (err) {
-      const message =
-        err?.response?.data?.error ||
-        "No pudimos calcular la distancia automáticamente. Ingresa los datos manualmente.";
-      setError(message);
-    } finally {
-      setCalculatingDistance(false);
-    }
-  }
+  
 
   async function handleTariffSuggestion() {
     const distanceNumber = Number(form.distanceKm);
@@ -701,14 +653,6 @@ export default function TripForm({ testRoutePolyline }) {
 
 
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className="rounded-md border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
-              onClick={handleDistanceFetch}
-              disabled={calculatingDistance}
-            >
-              {calculatingDistance ? "Calculando distancia..." : "Calcular distancia (OpenRouteService)"}
-            </button>
             <button
               type="button"
               className="rounded-md border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
