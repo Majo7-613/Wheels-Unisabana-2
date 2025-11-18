@@ -5,7 +5,7 @@ import ThemeToggle from "./ThemeToggle.jsx";
 export default function AppShell({ children }) {
   const { palette } = useTheme();
   return (
-    <div className="relative min-h-screen w-full overflow-hidden text-slate-100">
+    <div className="relative min-h-screen w-full overflow-hidden text-slate-900">
       <div
         aria-hidden
         className={`pointer-events-none absolute inset-0 -z-40 bg-gradient-to-br ${palette.background}`}
