@@ -50,6 +50,7 @@ export default function TripForm({ testRoutePolyline }) {
   const [calculatingDistance, setCalculatingDistance] = useState(false);
   const [tariffSuggestion, setTariffSuggestion] = useState(null);
   const [suggestingTariff, setSuggestingTariff] = useState(false);
+  const [suggestedRouteData, setSuggestedRouteData] = useState(null);
   const [distanceFeedback, setDistanceFeedback] = useState("");
   const [tariffFeedback, setTariffFeedback] = useState("");
   const [error, setError] = useState("");
@@ -375,10 +376,6 @@ export default function TripForm({ testRoutePolyline }) {
   }
 
   async function handleTariffSuggestion() {
-    setError("");
-    setSuccess("");
-    setTariffFeedback("");
-
     const distanceNumber = Number(form.distanceKm);
     const durationNumber = Number(form.durationMinutes);
     if (!Number.isFinite(distanceNumber) || distanceNumber < 0 || !Number.isFinite(durationNumber) || durationNumber < 0) {
@@ -386,6 +383,13 @@ export default function TripForm({ testRoutePolyline }) {
       return;
     }
 
+    await fetchTariff(distanceNumber, durationNumber);
+  }
+
+  async function fetchTariff(distanceNumber, durationNumber) {
+    setError("");
+    setSuccess("");
+    setTariffFeedback("");
     setSuggestingTariff(true);
     try {
       const { data } = await api.post("/trips/tariff/suggest", {
@@ -585,6 +589,7 @@ export default function TripForm({ testRoutePolyline }) {
               routePolyline={routePolyline}
               onDrawPolyline={setRoutePolyline}
               stops={stops}
+              onSuggestion={setSuggestedRouteData}
               originStopId={form.originStopId}
               destinationStopId={form.destinationStopId}
             />
@@ -599,6 +604,43 @@ export default function TripForm({ testRoutePolyline }) {
               </button>
               <span className="text-xs text-slate-500">Haz clic en el mapa para agregar puntos. Doble clic para terminar.</span>
             </div>
+            {suggestedRouteData && (
+              <div className="mt-3 flex items-center gap-3">
+                <div className="text-sm text-slate-700">
+                  Sugerencia disponible • Distancia: {suggestedRouteData.distance ? `${(suggestedRouteData.distance/1000).toFixed(2)} km` : "-"} • Duración: {suggestedRouteData.duration ? `${Math.ceil(suggestedRouteData.duration/60)} min` : "-"}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+                    onClick={async () => {
+                      if (!suggestedRouteData?.polyline) return;
+                      // apply polyline to form
+                      setRoutePolyline(suggestedRouteData.polyline);
+                      // update distance/duration fields
+                      const distKm = suggestedRouteData.distance ? Number((suggestedRouteData.distance / 1000).toFixed(2)) : undefined;
+                      const durMin = suggestedRouteData.duration ? Math.ceil(suggestedRouteData.duration / 60) : undefined;
+                      setForm(prev => ({ ...prev, distanceKm: distKm != null ? String(distKm) : prev.distanceKm, durationMinutes: durMin != null ? String(durMin) : prev.durationMinutes }));
+                      // fetch tariff suggestion immediately using values
+                      if (typeof fetchTariff === "function" && distKm != null && durMin != null) {
+                        await fetchTariff(distKm, durMin);
+                      }
+                      // clear suggestion UI
+                      setSuggestedRouteData(null);
+                    }}
+                  >
+                    Usar sugerencia
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-200 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                    onClick={() => setSuggestedRouteData(null)}
+                  >
+                    Omitir
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
 
 

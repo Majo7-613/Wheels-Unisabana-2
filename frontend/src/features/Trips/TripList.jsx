@@ -6,7 +6,10 @@ import TransmilenioMap from "../../components/TransmilenioMap.jsx";
 const initialFilters = {
   origin: "",
   destination: "",
+  // date is kept for client-side convenience; we add start_time/end_time for server filtering
   date: "",
+  start_time: "",
+  end_time: "",
   seats: ""
 };
 
@@ -94,7 +97,14 @@ export default function TripList() {
       setLoading(true);
       setError("");
       try {
-        const { data } = await api.get("/trips");
+        const params = {};
+        if (filters.origin) params.departure_point = filters.origin;
+        if (filters.seats) params.min_seats = filters.seats;
+        if (filters.start_time) params.start_time = filters.start_time;
+        if (filters.end_time) params.end_time = filters.end_time;
+        if (filters.max_price) params.max_price = filters.max_price;
+        const resp = await api.get("/trips", { params });
+        const data = resp?.data;
         if (!ignore) {
           setTrips(Array.isArray(data?.trips) ? data.trips : []);
         }
@@ -110,6 +120,38 @@ export default function TripList() {
       ignore = true;
     };
   }, []);
+
+  // Refetch when filters change (origin, seats, start_time, end_time)
+  useEffect(() => {
+    let ignore = false;
+    async function refetch() {
+      setLoading(true);
+      setError("");
+      try {
+        const params = {};
+        if (filters.origin) params.departure_point = filters.origin;
+        if (filters.seats) params.min_seats = filters.seats;
+        if (filters.start_time) params.start_time = filters.start_time;
+        if (filters.end_time) params.end_time = filters.end_time;
+        if (filters.max_price) params.max_price = filters.max_price;
+        const resp = await api.get("/trips", { params });
+        const data = resp?.data;
+        if (!ignore) setTrips(Array.isArray(data?.trips) ? data.trips : []);
+      } catch (err) {
+        console.error("trips list", err);
+        if (!ignore) setError("No se pudieron cargar los viajes. Intenta nuevamente.");
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    }
+
+    // Debounce quick changes slightly to avoid spamming API while user types
+    const id = setTimeout(refetch, 300);
+    return () => {
+      ignore = true;
+      clearTimeout(id);
+    };
+  }, [filters.origin, filters.seats, filters.start_time, filters.end_time, filters.max_price]);
 
   const filteredTrips = useMemo(() => {
     const originFilter = filters.origin.trim().toLowerCase();
@@ -332,12 +374,21 @@ export default function TripList() {
           />
         </label>
         <label className="text-sm text-slate-600">
-          Fecha
+          Fecha inicio
           <input
-            type="date"
+            type="datetime-local"
             className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-            value={filters.date}
-            onChange={(event) => setFilters((prev) => ({ ...prev, date: event.target.value }))}
+            value={filters.start_time}
+            onChange={(event) => setFilters((prev) => ({ ...prev, start_time: event.target.value }))}
+          />
+        </label>
+        <label className="text-sm text-slate-600">
+          Fecha fin
+          <input
+            type="datetime-local"
+            className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+            value={filters.end_time}
+            onChange={(event) => setFilters((prev) => ({ ...prev, end_time: event.target.value }))}
           />
         </label>
         <label className="text-sm text-slate-600">
@@ -348,6 +399,16 @@ export default function TripList() {
             className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
             value={filters.seats}
             onChange={(event) => setFilters((prev) => ({ ...prev, seats: event.target.value }))}
+          />
+        </label>
+        <label className="text-sm text-slate-600">
+          Precio máximo (COP)
+          <input
+            type="number"
+            min={0}
+            className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+            value={filters.max_price || ""}
+            onChange={(event) => setFilters((prev) => ({ ...prev, max_price: event.target.value }))}
           />
         </label>
       </form>

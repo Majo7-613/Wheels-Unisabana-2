@@ -7,6 +7,7 @@ import Vehicle from "../models/Vehicle.js";
 import User from "../models/User.js";
 import Rating from "../models/Rating.js";
 import { suggestTariff, validateTariffInputs } from "../services/tariffService.js";
+import { sendEmail } from "../services/emailService.js";
 
 const router = Router();
 
@@ -231,7 +232,7 @@ router.post("/", requireAuth, async (req, res) => {
 
 // GET /trips: list all trips with optional filters for passengers.
 router.get("/", async (req, res) => {
-  const { departure_point, min_seats, max_price } = req.query || {};
+  const { departure_point, min_seats, max_price, start_time, end_time } = req.query || {};
   const criteria = { status: { $in: ["scheduled", "full"] } };
 
   if (departure_point) {
@@ -244,6 +245,25 @@ router.get("/", async (req, res) => {
   if (max_price) {
     const price = Number(max_price);
     if (!Number.isNaN(price)) criteria.pricePerSeat = { $lte: price };
+  }
+  // Optional time range filtering for departureAt
+  if (start_time || end_time) {
+    const range = {};
+    if (start_time) {
+      const s = new Date(start_time);
+      if (!Number.isNaN(s.getTime())) {
+        range.$gte = s;
+      }
+    }
+    if (end_time) {
+      const e = new Date(end_time);
+      if (!Number.isNaN(e.getTime())) {
+        range.$lte = e;
+      }
+    }
+    if (Object.keys(range).length) {
+      criteria.departureAt = range;
+    }
   }
 
   const list = await Trip.find(criteria)
@@ -521,6 +541,37 @@ router.put("/:id/cancel", requireAuth, async (req, res) => {
   }));
 
   await trip.save();
+
+  // Notify passengers by email (non-blocking)
+  try {
+    const passengerIds = (trip.reservations || []).map((r) => r.passenger).filter(Boolean);
+    if (passengerIds.length) {
+      const users = await User.find({ _id: { $in: passengerIds } }).select("email firstName").lean();
+      const userById = new Map(users.map((u) => [u._id.toString(), u]));
+
+      const emailPromises = (trip.reservations || []).map((reservation) => {
+        const pid = reservation.passenger?.toString();
+        const user = pid ? userById.get(pid) : null;
+        if (user && user.email) {
+          return sendEmail({
+            to: user.email,
+            subject: "Viaje cancelado - Wheels Sabana",
+            html: `<p>Hola <strong>${user.firstName || ""}</strong>,</p><p>Lamentamos informarte que el viaje ${sanitizeTrip(trip).origin || ""} → ${sanitizeTrip(trip).destination || ""} fue cancelado por el conductor.</p>`
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      // fire and forget but await settled results to log any failures
+      const settled = await Promise.allSettled(emailPromises);
+      const errs = settled.filter((s) => s.status === "rejected");
+      if (errs.length) {
+        console.error(`Failed to send ${errs.length} trip-cancel emails`);
+      }
+    }
+  } catch (err) {
+    console.error("Error notifying passengers of trip cancellation", err && err.message ? err.message : err);
+  }
 
   res.json({ trip: sanitizeTrip(trip) });
 });

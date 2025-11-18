@@ -1,6 +1,7 @@
 // Maps integration endpoints proxy to OpenRouteService via mapsService.
 import { Router } from "express";
 import { calculateDistance, getDistanceMatrix, MapsServiceError } from "../services/mapsService.js";
+import { getRoute, RouteServiceError } from "../services/routeService.js";
 import {
   getTransmilenioRoutes,
   getTransmilenioStations
@@ -122,9 +123,38 @@ router.get("/transmilenio/stops", async (_req, res) => {
         lng: props.longitud_estacion || (feature.geometry?.coordinates?.[0])
       };
     }).filter(stop => stop.id && stop.name && typeof stop.lat === "number" && typeof stop.lng === "number");
+    // Add Universidad de La Sabana as an extra stop (hardcoded)
+    try {
+      const uniSabana = {
+        id: "UNISABANA",
+        name: "Universidad de La Sabana",
+        lat: 4.858333,
+        lng: -74.030556
+      };
+      // Avoid duplicates by id
+      if (!stops.find(s => String(s.id) === String(uniSabana.id))) {
+        stops.unshift(uniSabana);
+      }
+    } catch (e) {
+      // non-fatal: continue returning existing stops
+    }
     res.json({ stops });
   } catch (error) {
     res.status(502).json({ error: error?.message || "No se pudo obtener paradas TM" });
+  }
+});
+
+// GET /maps/route-suggest?origin=lat,lng&destination=lat,lng&provider=osrm|google
+router.get("/route-suggest", async (req, res) => {
+  const { origin, destination } = req.query || {};
+  const provider = req.query.provider || "osrm";
+  if (!origin || !destination) return res.status(400).json({ error: "origin y destination requeridos" });
+  try {
+    const payload = await getRoute(origin, destination, provider);
+    res.json(payload);
+  } catch (error) {
+    const status = error?.statusCode || 500;
+    res.status(status).json({ error: error?.message || "Route provider error", provider: error?.provider, providerStatus: error?.providerStatus });
   }
 });
 

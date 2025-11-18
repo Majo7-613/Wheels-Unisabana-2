@@ -47,7 +47,10 @@ describe("TripList pickup suggestions", () => {
 
   it("permite sugerir un nuevo punto cuando el viaje no tiene recogidas", async () => {
     const trip = tripFixture();
-    mockGet.mockResolvedValueOnce({ data: { trips: [trip] } });
+    // Provide a default resolved value so any extra calls to GET /trips
+    // (initial + possible refetches) return a valid payload and avoid
+    // brittle "undefined" errors in the component under test.
+    mockGet.mockResolvedValue({ data: { trips: [trip] } });
     mockPost
       .mockResolvedValueOnce({ data: { trip } })
       .mockResolvedValueOnce({

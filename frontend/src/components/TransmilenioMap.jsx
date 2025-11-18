@@ -40,7 +40,13 @@ export default function TransmilenioMap({
   onSelectPoint,
   onPickupSelect,
   className = "",
-  interactive = true
+  interactive = true,
+  // new props
+  routePolyline = [], // [{lat,lng}, ...] - current drawn/selected route
+  onDrawPolyline, // callback to set route polyline
+  stops = [],
+  originStopId,
+  destinationStopId
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -50,6 +56,9 @@ export default function TransmilenioMap({
   const selectionMarkerRef = useRef(null);
   const clickHandlerRef = useRef(onSelectPoint);
   const pickupSelectHandlerRef = useRef(onPickupSelect);
+  const suggestedRouteLayerRef = useRef(null);
+  const drawnRouteLayerRef = useRef(null);
+  const lastRequestedRouteRef = useRef(null);
 
   clickHandlerRef.current = onSelectPoint;
   pickupSelectHandlerRef.current = onPickupSelect;
@@ -70,6 +79,24 @@ export default function TransmilenioMap({
   );
 
   const selectedLatLng = useMemo(() => toLatLng(selectedPoint), [selectedPoint]);
+
+  // helper: decode encoded polyline (Google/OSRM) to [{lat,lng},...]
+  function decodePolyline(encoded) {
+    if (!encoded) return [];
+    let index = 0, lat = 0, lng = 0, coordinates = [];
+    while (index < encoded.length) {
+      let b, shift = 0, result = 0;
+      do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+      shift = 0; result = 0;
+      do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+      coordinates.push({ lat: lat / 1e5, lng: lng / 1e5 });
+    }
+    return coordinates;
+  }
 
   // Initialize map once.
   useEffect(() => {
@@ -103,6 +130,60 @@ export default function TransmilenioMap({
       mapRef.current = null;
     };
   }, [interactive]);
+
+  // Render suggested route (from backend) when origin/destination stops change
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !originStopId || !destinationStopId || !stops?.length) return;
+    const origin = stops.find(s => String(s.id) === String(originStopId));
+    const destination = stops.find(s => String(s.id) === String(destinationStopId));
+    if (!origin || !destination) return;
+
+    const key = `${origin.id}:${destination.id}`;
+    // avoid duplicate requests for same origin/destination
+    if (lastRequestedRouteRef.current === key) return;
+    lastRequestedRouteRef.current = key;
+
+    // request suggestion
+    (async () => {
+      try {
+        const api = (await import("../utils/api")).default;
+        const params = { origin: `${origin.lat},${origin.lng}`, destination: `${destination.lat},${destination.lng}`, provider: "osrm" };
+        const { data } = await api.get("/maps/route-suggest", { params });
+        const poly = data?.polyline || data?.raw?.routes?.[0]?.geometry || null;
+        const decoded = poly ? decodePolyline(poly) : [];
+
+        if (suggestedRouteLayerRef.current) {
+          suggestedRouteLayerRef.current.removeFrom(map);
+          suggestedRouteLayerRef.current = null;
+        }
+
+        if (decoded.length) {
+          suggestedRouteLayerRef.current = L.polyline(decoded.map(p => [p.lat, p.lng]), {
+            color: "#ef4444",
+            weight: 4,
+            opacity: 0.9,
+            dashArray: "6,6"
+          }).addTo(map);
+
+          suggestedRouteLayerRef.current.on("click", () => {
+            // apply suggestion to caller (TripForm)
+            if (typeof onDrawPolyline === "function") {
+              onDrawPolyline(decoded);
+            }
+          });
+          // notify parent that a suggestion is available (include raw data)
+          if (typeof onSuggestion === "function") {
+            try {
+              onSuggestion({ polyline: decoded, distance: data?.distance, duration: data?.duration, raw: data });
+            } catch (e) {}
+          }
+        }
+      } catch (e) {
+        // ignore suggestion errors silently
+      }
+    })();
+  }, [originStopId, destinationStopId, stops, onDrawPolyline]);
 
   // Render TransMilenio routes.
   useEffect(() => {
@@ -195,6 +276,26 @@ export default function TransmilenioMap({
 
     pickupLayerRef.current = L.layerGroup(markers).addTo(map);
   }, [normalizedPickupPoints]);
+
+  // Render drawn route polyline (routePolyline prop)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (drawnRouteLayerRef.current) {
+      drawnRouteLayerRef.current.removeFrom(map);
+      drawnRouteLayerRef.current = null;
+    }
+
+    if (!routePolyline || !routePolyline.length) return;
+
+    drawnRouteLayerRef.current = L.polyline(routePolyline.map(p => [p.lat, p.lng]), {
+      color: "#0ea5e9",
+      weight: 4,
+      opacity: 0.9
+    }).addTo(map);
+    try { drawnRouteLayerRef.current && map.fitBounds(drawnRouteLayerRef.current.getBounds(), { padding: [20, 20] }); } catch (e) {}
+  }, [routePolyline]);
 
   // Render currently selected point marker.
   useEffect(() => {

@@ -9,7 +9,7 @@ import Vehicle from "../models/Vehicle.js";
 import PasswordReset from "../models/PasswordReset.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { revokeToken } from "../utils/tokenBlacklist.js";
-import { sendWelcomeEmail, sendPasswordResetEmail } from "../services/emailService.js";
+import { sendEmail } from "../services/emailService.js";
 
 const router = Router();
 const RESET_TOKEN_TTL_MS = Number(process.env.PASSWORD_RESET_TTL_MS || 1000 * 60 * 15);
@@ -181,9 +181,10 @@ router.post("/register", async (req, res) => {
       createdUser.activeVehicle = createdVehicle._id;
       await createdUser.save();
 
-      await sendWelcomeEmail({
-        email: createdUser.email,
-        firstName: createdUser.firstName
+      await sendEmail({
+        to: createdUser.email,
+        subject: "Bienvenido a Wheels Sabana",
+        html: `<p>Hola <strong>${createdUser.firstName}</strong>,</p><p>Tu cuenta de Wheels Sabana está lista. Ingresa y reserva tus viajes.</p>`
       });
 
       return res.status(201).json({
@@ -192,9 +193,10 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    await sendWelcomeEmail({
-      email: createdUser.email,
-      firstName: createdUser.firstName
+    await sendEmail({
+      to: createdUser.email,
+      subject: "Bienvenido a Wheels Sabana",
+      html: `<p>Hola <strong>${createdUser.firstName}</strong>,</p><p>Tu cuenta de Wheels Sabana está lista. Ingresa y reserva tus viajes.</p>`
     });
 
     return res.status(201).json({ user: toPublicUser(createdUser), vehicle: null });
@@ -383,12 +385,41 @@ router.post("/forgot-password", async (req, res) => {
 
     const expiresInMinutes = Math.max(1, Math.round(RESET_TOKEN_TTL_MS / 60000));
 
-    await sendPasswordResetEmail({
-      email: user.email,
-      firstName: user.firstName,
-      resetLink,
-      token: tokenRaw,
-      expiresInMinutes
+    await sendEmail({
+      to: user.email,
+      subject: "Restablece tu contraseña de Wheels Sabana",
+      html: `
+        <table style="max-width:480px;width:100%;font-family:Helvetica,Arial,sans-serif;color:#0f172a">
+          <tr>
+            <td style="padding:24px 24px 8px;font-size:20px;font-weight:600;">Hola ${user.firstName || ""},</td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px 16px;font-size:15px;line-height:1.5;color:#1e293b;">
+              Recibimos una solicitud para restablecer tu contraseña. Si fuiste tú, usa el siguiente botón.
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px 24px;">
+              <a href="${resetLink}" style="display:inline-block;padding:12px 24px;border-radius:999px;background:#02A0C6;color:#fff;text-decoration:none;font-weight:600;">Sí, restablecer contraseña</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px;font-size:14px;line-height:1.5;color:#334155;">
+              Si el botón no funciona, copia y pega este token en la aplicación:
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 24px 16px;">
+              <code style="display:inline-block;padding:8px 12px;border-radius:12px;background:#f1f5f9;font-size:14px;letter-spacing:0.08em;">${tokenRaw}</code>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px 24px;font-size:13px;line-height:1.6;color:#64748b;">
+              Este enlace vence en ${expiresInMinutes} minutos. Si no solicitaste este cambio, ignora este mensaje.
+            </td>
+          </tr>
+        </table>
+      `
     }).catch((err) => {
       console.error("send reset email failed", err);
     });
